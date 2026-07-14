@@ -85,18 +85,12 @@ class VerificationRunner:
             if criterion.startswith("cmd:"):
                 cmd = criterion[4:].strip()
                 try:
-                    res = subprocess.run(
-                        cmd,
-                        shell=True,
-                        cwd=self.workspace_path,
-                        capture_output=True,
-                        text=True,
-                        timeout=30
-                    )
-                    if res.returncode == 0:
+                    from council.sandbox import run_sandboxed
+                    rc, stdout, stderr = run_sandboxed(cmd, workdir=self.workspace_path, timeout=30)
+                    if rc == 0:
                         is_passed = True
                     else:
-                        error_message = f"Command exit status {res.returncode}. Stderr: {res.stderr.strip()}"
+                        error_message = f"Command exit status {rc}. Stderr: {stderr.strip()}"
                 except Exception as e:
                     error_message = f"Command execution exception: {str(e)}"
             else:

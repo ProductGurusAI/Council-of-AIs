@@ -50,41 +50,44 @@ def eval_code_test(code_text: str, func_name: str, test_input: Any, expected: An
     """
     SECURITY: probe responses come from UNTRUSTED third-party models — the
     probe exists precisely to evaluate unknown providers. Model code must
-    NEVER run in the platform process (an in-process exec() would hand a
-    malicious provider code execution with user privileges and access to
-    ledger/memory state). We run it in a separate `python -I` subprocess
-    (isolated mode: no user site-packages, no env inheritance beyond minimum)
-    with a hard 5-second timeout. This limits blast radius; full container
-    sandboxing is a future hardening step — until then this grading remains
-    the weakest trust boundary in the platform.
+    NEVER run in the platform process. We run it in a secure containerized sandbox
+    using run_sandboxed with a hard 5-second timeout.
     """
-    # Clean possible markdown block wraps
+    import os
+    from council.sandbox import run_sandboxed
+    
     clean_code = re.sub(r"```python\s*|```\s*", "", code_text).strip()
     if not clean_code or len(clean_code) > 10_000:
         return False
 
-    harness = (
-        "import json, sys\n"
-        "ns = {}\n"
+    # Create harness that executes the code locally and prints JSON results
+    harness_append = (
+        "\nimport json, sys\n"
         "try:\n"
-        "    exec(sys.stdin.read(), ns, ns)\n"
-        f"    fn = ns.get({func_name!r})\n"
-        f"    result = fn({test_input!r}) if fn else None\n"
-        "    print(json.dumps({'ok': True, 'result': result}))\n"
-        "except Exception:\n"
-        "    print(json.dumps({'ok': False, 'result': None}))\n"
+        f"    result = {func_name}({test_input!r})\n"
+        f"    print(json.dumps({{'ok': True, 'result': result}}))\n"
+        "except Exception as e:\n"
+        "    print(json.dumps({'ok': False, 'result': None, 'error': str(e)}))\n"
     )
+    
+    filename = f"temp_probe_{func_name}_{int(time.time())}.py"
+    with open(filename, "w") as f:
+        f.write(clean_code + "\n" + harness_append)
+        
     try:
-        proc = subprocess.run(
-            [sys.executable, "-I", "-c", harness],
-            input=clean_code,
-            capture_output=True, text=True, timeout=5,
-            env={"PATH": ""},  # no tools reachable from the child
-        )
-        out = json.loads(proc.stdout.strip().splitlines()[-1])
+        rc, stdout, stderr = run_sandboxed([sys.executable, "-I", filename], workdir=".", timeout=5)
+        if rc != 0:
+            return False
+        out = json.loads(stdout.strip().splitlines()[-1])
         return bool(out.get("ok")) and out.get("result") == expected
     except Exception:
         return False
+    finally:
+        if os.path.exists(filename):
+            try:
+                os.remove(filename)
+            except OSError:
+                pass
 
 def run_model_probes(client: UnifiedClient, provider: str, model_name: str) -> Dict[str, Any]:
     """
