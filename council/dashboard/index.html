@@ -427,9 +427,13 @@
                     </div>
                     <div class="chamber-cost" id="chamber-cost" aria-live="polite">Session cost: $0.00000</div>
                 </div>
-                <div class="chamber-controls">
-                    <input type="text" id="chamber-goal" class="form-input" placeholder="Goal, e.g. 'Write a rate limiter class with tests'" aria-label="Collaboration goal" />
-                    <input type="number" id="chamber-budget" class="form-input" placeholder="Budget, e.g. 0.50" step="0.05" min="0.01" value="0.50" aria-label="Session budget" style="max-width: 140px;" />
+                <div class="chamber-controls" style="flex-wrap: wrap; gap: 1rem;">
+                    <input type="text" id="chamber-goal" class="form-input" placeholder="Goal, e.g. 'Write a rate limiter class with tests'" aria-label="Collaboration goal" style="flex: 1; min-width: 250px;" />
+                    <input type="number" id="chamber-budget" class="form-input" placeholder="Budget, e.g. 0.50" step="0.05" min="0.01" value="0.50" aria-label="Session budget" style="max-width: 120px;" />
+                    <label class="checkbox-label" style="display: flex; align-items: center; gap: 0.5rem; font-size: 12px; color: var(--text-dim); cursor: pointer; user-select: none;">
+                        <input type="checkbox" id="chamber-parallel" />
+                        Parallel exploration (≈N&times; explorer cost)
+                    </label>
                     <button class="btn-send" id="btn-chamber-start"><i data-lucide="play" aria-hidden="true"></i> Convene</button>
                 </div>
                 <div class="chamber-status hidden" id="chamber-status"></div>

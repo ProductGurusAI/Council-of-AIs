@@ -189,6 +189,19 @@ document.addEventListener("DOMContentLoaded", () => {
                 ctrlReserveFloor.innerText = `$${(data.reserve_floor || 10.00).toFixed(2)}`;
                 ctrlOverrideCount.innerText = data.override_count || 0;
 
+                const checkboxParallel = document.getElementById("chamber-parallel");
+                if (checkboxParallel) {
+                    if (data.sandbox_present === false || data.reservations_present === false) {
+                        checkboxParallel.disabled = true;
+                        checkboxParallel.parentElement.style.opacity = "0.5";
+                        checkboxParallel.parentElement.title = "Requires container sandbox and budget reservations enabled.";
+                    } else {
+                        checkboxParallel.disabled = false;
+                        checkboxParallel.parentElement.style.opacity = "1";
+                        checkboxParallel.parentElement.title = "";
+                    }
+                }
+
                 // Update Average Route costs
                 const thinkerCost = data.avg_spend_per_turn_by_route?.thinker || 0.0;
                 const explorerCost = data.avg_spend_per_turn_by_route?.explorer || 0.0;
@@ -1410,6 +1423,66 @@ document.addEventListener("DOMContentLoaded", () => {
             lucide.createIcons();
             chamberFeed.scrollTop = chamberFeed.scrollHeight;
             return;
+            }
+
+        if (turn.branch) {
+            let container = chamberFeed.querySelector(".chamber-branches-container:last-of-type");
+            if (!container) {
+                container = document.createElement("div");
+                container.className = "chamber-branches-container";
+                container.style.display = "flex";
+                container.style.gap = "1rem";
+                container.style.width = "100%";
+                container.style.margin = "1rem 0";
+                chamberFeed.appendChild(container);
+            }
+            
+            let branchCol = container.querySelector(`.branch-col-${turn.branch}`);
+            if (!branchCol) {
+                branchCol = document.createElement("div");
+                branchCol.className = `branch-col branch-col-${turn.branch}`;
+                branchCol.style.flex = "1";
+                branchCol.style.minWidth = "0";
+                branchCol.style.background = "rgba(255,255,255,0.02)";
+                branchCol.style.border = "1px solid rgba(255,255,255,0.05)";
+                branchCol.style.padding = "0.75rem";
+                branchCol.style.borderRadius = "6px";
+                
+                const header = document.createElement("div");
+                header.style.fontSize = "11px";
+                header.style.fontWeight = "bold";
+                header.style.color = "var(--accent-blue)";
+                header.style.borderBottom = "1px solid rgba(255,255,255,0.08)";
+                header.style.paddingBottom = "0.25rem";
+                header.style.marginBottom = "0.5rem";
+                header.innerText = `Branch ${turn.branch}`;
+                branchCol.appendChild(header);
+
+                if (turn.branch === "A") {
+                    container.insertBefore(branchCol, container.firstChild);
+                } else if (turn.branch === "B") {
+                    const cCol = container.querySelector(".branch-col-C");
+                    if (cCol) {
+                        container.insertBefore(branchCol, cCol);
+                    } else {
+                        container.appendChild(branchCol);
+                    }
+                } else {
+                    container.appendChild(branchCol);
+                }
+            }
+            
+            const bubbleDiv = document.createElement("div");
+            bubbleDiv.className = `chamber-msg tier-${turn.tier || "unknown"}`;
+            bubbleDiv.style.margin = "0.5rem 0";
+            const meta = `<div class="message-meta">${(turn.tier || "model").toUpperCase()}` +
+                (turn.model ? ` <span class="model-badge">${turn.model}</span>` : "") +
+                (turn.cost ? ` <span class="cost-tag">$${Number(turn.cost).toFixed(5)}</span>` : "") +
+                `</div>`;
+            bubbleDiv.innerHTML = `${meta}<div class="message-bubble">${escapeHtml(turn.content)}</div>`;
+            branchCol.appendChild(bubbleDiv);
+            chamberFeed.scrollTop = chamberFeed.scrollHeight;
+            return;
         }
 
         const tierClass = turn.tier ? `tier-${turn.tier}` : (turn.role === "system" ? "tier-system" : "tier-unknown");
@@ -1454,7 +1527,69 @@ document.addEventListener("DOMContentLoaded", () => {
         fetch(`/api/collab/result?id=${chamberTaskId}`)
             .then(r => r.json())
             .then(res => {
-                if (!res || res.status === "running" || res.status === "starting") return;
+                if (!res) return;
+                
+                // Handle awaiting_user status
+                if (res.status === "awaiting_user") {
+                    let inputContainer = document.getElementById("chamber-user-input-container");
+                    if (!inputContainer) {
+                        inputContainer = document.createElement("div");
+                        inputContainer.id = "chamber-user-input-container";
+                        inputContainer.className = "chamber-msg tier-system";
+                        inputContainer.style.background = "rgba(var(--accent-blue-rgb), 0.1)";
+                        inputContainer.style.border = "1px solid var(--accent-blue)";
+                        inputContainer.style.padding = "1rem";
+                        inputContainer.style.borderRadius = "6px";
+                        inputContainer.style.margin = "1rem 0";
+                        inputContainer.innerHTML = `
+                            <div style="font-weight: bold; margin-bottom: 0.5rem; color: var(--accent-blue); font-size:12px;">
+                                <i data-lucide="help-circle" style="display:inline-block; width:14px; height:14px; vertical-align:middle; margin-right:4px;"></i>
+                                User Input Requested
+                            </div>
+                            <div id="chamber-user-question" style="font-size: 13px; margin-bottom: 1rem; color: var(--text-bright);"></div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <input type="text" id="chamber-user-answer" class="form-input" placeholder="Type your answer here..." style="flex: 1;" />
+                                <button class="btn-send" id="btn-chamber-answer-submit">Submit</button>
+                            </div>
+                        `;
+                        chamberFeed.appendChild(inputContainer);
+                        lucide.createIcons();
+                        
+                        const btnSubmit = document.getElementById("btn-chamber-answer-submit");
+                        const txtAnswer = document.getElementById("chamber-user-answer");
+                        btnSubmit.addEventListener("click", () => {
+                            const answer = txtAnswer.value.trim();
+                            if (!answer) return;
+                            btnSubmit.disabled = true;
+                            fetch("/api/collab/answer", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ task_id: chamberTaskId, answer: answer })
+                            })
+                            .then(r => r.json())
+                            .then(data => {
+                                if (data.status === "success") {
+                                    inputContainer.remove();
+                                } else {
+                                    btnSubmit.disabled = false;
+                                    alert("Error: " + data.error);
+                                }
+                            })
+                            .catch(err => {
+                                btnSubmit.disabled = false;
+                                alert("Network error: " + err);
+                            });
+                        });
+                    }
+                    document.getElementById("chamber-user-question").innerText = res.question || "";
+                    chamberFeed.scrollTop = chamberFeed.scrollHeight;
+                    return;
+                } else {
+                    const inputContainer = document.getElementById("chamber-user-input-container");
+                    if (inputContainer) inputContainer.remove();
+                }
+                
+                if (res.status === "running" || res.status === "starting") return;
                 clearInterval(chamberPollTimer);
                 chamberPollTimer = null;
                 btnChamberStart.disabled = false;
@@ -1488,10 +1623,11 @@ document.addEventListener("DOMContentLoaded", () => {
             btnChamberStart.innerHTML = `<i data-lucide="loader" class="animate-spin"></i> In session…`;
             lucide.createIcons();
 
+            const mode = document.getElementById("chamber-parallel")?.checked ? "tree" : "linear";
             fetch("/api/collab/run", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ goal: goal, budget: parseFloat(chamberBudget.value) })
+                body: JSON.stringify({ goal: goal, budget: parseFloat(chamberBudget.value), mode: mode })
             })
                 .then(r => r.json())
                 .then(data => {

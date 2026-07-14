@@ -9,12 +9,14 @@ from council.bypass import BypassLane
 class TestCouncilSpine(unittest.TestCase):
     
     def setUp(self):
+        import shutil
         os.environ["TOTAL_BUDGET"] = "75.00"
-        # Create a temp directory or file for ledger store
-        self.test_ledger_file = "test_ledger_store.json"
-        if os.path.exists(self.test_ledger_file):
-            os.remove(self.test_ledger_file)
+        self.test_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "test_workspace_spine"))
+        if os.path.exists(self.test_dir):
+            shutil.rmtree(self.test_dir)
+        os.makedirs(self.test_dir)
         
+        self.test_ledger_file = os.path.join(self.test_dir, "test_ledger_store.json")
         self.ledger = Ledger(
             filepath=self.test_ledger_file,
             total_budget=75.00,
@@ -25,10 +27,10 @@ class TestCouncilSpine(unittest.TestCase):
         self.bypass_lane = BypassLane()
 
     def tearDown(self):
-        if os.path.exists(self.test_ledger_file):
-            os.remove(self.test_ledger_file)
+        import shutil
+        if os.path.exists(self.test_dir):
+            shutil.rmtree(self.test_dir)
         if os.path.exists("tasks_store"):
-            # clean up temp test store
             pass
 
     def test_ledger_cost_calculation(self):

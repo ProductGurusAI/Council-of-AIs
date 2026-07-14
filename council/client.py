@@ -305,7 +305,20 @@ class UnifiedClient:
                 if thinking_level in ("low", "medium", "high"):
                     kwargs["reasoning_effort"] = thinking_level
 
-            response = client.chat.completions.create(**kwargs)
+            try:
+                response = client.chat.completions.create(**kwargs)
+            except Exception as e:
+                is_max_tokens_400 = False
+                if hasattr(e, "status_code") and e.status_code == 400 and "max_tokens" in str(e).lower():
+                    is_max_tokens_400 = True
+                elif "max_tokens" in str(e).lower() and ("400" in str(e) or "bad_request" in str(e).lower() or "bad request" in str(e).lower()):
+                    is_max_tokens_400 = True
+                    
+                if is_max_tokens_400 and "max_tokens" in kwargs:
+                    kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")
+                    response = client.chat.completions.create(**kwargs)
+                else:
+                    raise
 
             text = response.choices[0].message.content or ""
             usage = {"input_tokens": 0, "output_tokens": len(text) // 4,

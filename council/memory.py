@@ -80,7 +80,7 @@ class MemoryWrapper:
             )
         """)
         # Migrate pre-existing DBs that lack the audit columns
-        for col in ("model", "tier"):
+        for col in ("model", "tier", "branch"):
             try:
                 cursor.execute(f"ALTER TABLE transcripts ADD COLUMN {col} TEXT")
             except sqlite3.OperationalError:
@@ -204,13 +204,13 @@ class MemoryWrapper:
         
         return True
 
-    def append_transcript(self, task_id: str, turn_index: int, role: str, content: str, tokens: int = 0, cost: float = 0.0, embedding: Optional[List[float]] = None, model: Optional[str] = None, tier: Optional[str] = None) -> int:
+    def append_transcript(self, task_id: str, turn_index: int, role: str, content: str, tokens: int = 0, cost: float = 0.0, embedding: Optional[List[float]] = None, model: Optional[str] = None, tier: Optional[str] = None, branch: Optional[str] = None) -> int:
         """Saves a raw turn transcript (L0) and its optional embedding to SQLite."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
-            "INSERT INTO transcripts (task_id, turn_index, role, content, tokens, cost, model, tier) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (task_id, turn_index, role, content, tokens, cost, model, tier)
+            "INSERT INTO transcripts (task_id, turn_index, role, content, tokens, cost, model, tier, branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (task_id, turn_index, role, content, tokens, cost, model, tier, branch)
         )
         row_id = cursor.lastrowid
         

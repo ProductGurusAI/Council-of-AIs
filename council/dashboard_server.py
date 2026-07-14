@@ -95,6 +95,8 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
             self.handle_post_models_bench(body)
         elif path == "/api/collab/run":
             self.handle_post_collab_run(body)
+        elif path == "/api/collab/answer":
+            self.handle_post_collab_answer(body)
         else:
             self._set_headers(status=404)
             self.wfile.write(json.dumps({"error": "Endpoint not found"}).encode())
@@ -111,6 +113,15 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
             logger = AnalyticsLogger(workspace_path=WORKSPACE_DIR)
             stats = logger.get_statistics(ledger.data)
 
+            sandbox_present = False
+            try:
+                import council.sandbox
+                sandbox_present = True
+            except ImportError:
+                pass
+                
+            reservations_present = hasattr(ledger, "reserve")
+
             response = {
                 "total_budget": ledger.data.get("total_budget", 75.00),
                 "remaining_budget": ledger.get_remaining_budget(),
@@ -122,7 +133,9 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
                 "failed_then_escalated_count": stats.get("failed_then_escalated_count", 0),
                 "orchestration_spent": stats.get("orchestration_spent", 0.0),
                 "orchestration_overhead_pct": stats.get("orchestration_overhead_pct", 0.0),
-                "avg_spend_per_turn_by_route": stats.get("avg_spend_per_turn_by_route", {})
+                "avg_spend_per_turn_by_route": stats.get("avg_spend_per_turn_by_route", {}),
+                "sandbox_present": sandbox_present,
+                "reservations_present": reservations_present
             }
             self._set_headers()
             self.wfile.write(json.dumps(response).encode())
@@ -224,7 +237,7 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
                 conn = sqlite3.connect(memory.db_path)
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT turn_index, role, content, cost, model, tier FROM transcripts WHERE task_id = ? ORDER BY id ASC",
+                    "SELECT turn_index, role, content, cost, model, tier, branch FROM transcripts WHERE task_id = ? ORDER BY id ASC",
                     (task_id,)
                 )
                 rows = cursor.fetchall()
@@ -236,6 +249,7 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
                         "content": r[2],
                         "model": r[4] if len(r) > 4 else None,
                         "tier": r[5] if len(r) > 5 else None,
+                        "branch": r[6] if len(r) > 6 else None,
                         "cost": r[3]
                     })
             except Exception:
@@ -298,6 +312,7 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
     # ========================================================
     def handle_post_collab_run(self, body: Dict[str, Any]):
         goal = (body.get("goal") or "").strip()
+        mode = (body.get("mode") or "linear").strip()
         try:
             budget = float(body.get("budget", 0.50))
         except (TypeError, ValueError):
@@ -312,13 +327,32 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
             import uuid, threading
             task_id = f"collab-{uuid.uuid4().hex[:8]}"
             COLLAB_RESULTS[task_id] = {"status": "starting"}
-            t = threading.Thread(target=_run_collab_session, args=(task_id, goal, budget), daemon=True)
+            t = threading.Thread(target=_run_collab_session, args=(task_id, goal, budget, mode), daemon=True)
             t.start()
             self._set_headers()
             self.wfile.write(json.dumps({"task_id": task_id, "budget": budget}).encode())
         except Exception as e:
             self._set_headers(status=500)
             self.wfile.write(json.dumps({"error": str(e)}).encode())
+
+    def handle_post_collab_answer(self, body: Dict[str, Any]):
+        task_id = (body.get("task_id") or "").strip()
+        answer = (body.get("answer") or "").strip()
+        
+        if not task_id or not answer:
+            self._set_headers(status=400)
+            self.wfile.write(json.dumps({"error": "task_id and answer are required"}).encode())
+            return
+            
+        from council.collaboration import _pending_user_inputs
+        if task_id in _pending_user_inputs:
+            _pending_user_inputs[task_id]["answer"] = answer
+            _pending_user_inputs[task_id]["event"].set()
+            self._set_headers()
+            self.wfile.write(json.dumps({"status": "success"}).encode())
+        else:
+            self._set_headers(status=404)
+            self.wfile.write(json.dumps({"error": "No pending user input found for this session"}).encode())
 
     def handle_get_collab_result(self, task_id):
         if not task_id or task_id not in COLLAB_RESULTS:
@@ -364,7 +398,7 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
                 conn = sqlite3.connect(memory.db_path)
                 cursor = conn.cursor()
                 cursor.execute(
-                    "SELECT turn_index, role, content, cost, model, tier FROM transcripts WHERE task_id = ? ORDER BY id ASC",
+                    "SELECT turn_index, role, content, cost, model, tier, branch FROM transcripts WHERE task_id = ? ORDER BY id ASC",
                     (task_id,)
                 )
                 rows = cursor.fetchall()
@@ -376,6 +410,7 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
                         "content": r[2],
                         "model": r[4] if len(r) > 4 else None,
                         "tier": r[5] if len(r) > 5 else None,
+                        "branch": r[6] if len(r) > 6 else None,
                         "cost": r[3]
                     })
 
@@ -761,7 +796,7 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
             self._set_headers(status=500)
             self.wfile.write(json.dumps({"error": str(e)}).encode())
 
-def _run_collab_session(task_id: str, goal: str, budget: float):
+def _run_collab_session(task_id: str, goal: str, budget: float, mode: str = "linear"):
     try:
         from council.app import CouncilSession
         from council.collaboration import CollaborationSession
@@ -772,6 +807,7 @@ def _run_collab_session(task_id: str, goal: str, budget: float):
             task_id=task_id,
             session_budget=budget,
             escalator=session.escalator,
+            mode=mode,
         )
         COLLAB_RESULTS[task_id] = {"status": "running"}
         result = collab.run(goal)

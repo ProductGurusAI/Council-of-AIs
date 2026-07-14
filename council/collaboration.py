@@ -21,8 +21,11 @@ All exchanges are appended to the task transcript with model/tier/cost so the
 Council Chamber view (and any audit) can replay the full dialogue.
 """
 
+import threading
 from typing import Optional, Dict, Any
 from council.client import CacheEnvelope
+
+_pending_user_inputs = {}
 
 TERSE = (
     "Machine-to-machine channel: be terse. Fragments fine. No pleasantries, "
@@ -47,13 +50,14 @@ class CollaborationSession:
     MAX_CLARIFYING_QUESTIONS = 1
 
     def __init__(self, client, memory, task_id: str, provider: str = "anthropic",
-                 session_budget: float = 1.00, escalator=None):
+                 session_budget: float = 1.00, escalator=None, mode: str = "linear"):
         self.client = client
         self.memory = memory
         self.task_id = task_id
         self.provider = provider
         self.session_budget = session_budget
         self.escalator = escalator
+        self.mode = mode
         self.total_cost = 0.0
         self.rounds_used = 0
         self.questions_used = 0
@@ -63,6 +67,7 @@ class CollaborationSession:
         # trips. Seen in production: Thinker 400'd every review round while
         # Explorer succeeded — session burned all 3 rounds reviewing noise.
         self._consecutive_api_errors = {"thinker": 0, "explorer": 0}
+        self._cost_lock = threading.Lock()
 
     # ------------------------------------------------------------------ utils
 
@@ -80,11 +85,45 @@ class CollaborationSession:
     def _marker(self, text: str):
         self._log("system", text)
 
+    def _log_branch(self, branch: str, turn_index: int, role: str, content: str, cost: float = 0.0, model: Optional[str] = None, tier: Optional[str] = None):
+        try:
+            self.memory.append_transcript(
+                self.task_id, turn_index, role, content,
+                cost=cost, model=model, tier=tier, branch=branch
+            )
+        except PermissionError:
+            raise
+
+    def _marker_branch(self, branch: str, text: str):
+        self._log_branch(branch, self._turn, "system", text)
+
+    def _await_user_input(self, question: str) -> str:
+        event = threading.Event()
+        from council.collaboration import _pending_user_inputs
+        _pending_user_inputs[self.task_id] = {"event": event, "answer": None}
+        
+        from council.dashboard_server import COLLAB_RESULTS
+        if self.task_id in COLLAB_RESULTS:
+            COLLAB_RESULTS[self.task_id]["status"] = "awaiting_user"
+            COLLAB_RESULTS[self.task_id]["question"] = question
+            
+        event.wait()
+        
+        answer_data = _pending_user_inputs.pop(self.task_id, {})
+        answer = answer_data.get("answer") or ""
+        
+        self._log("user", answer)
+        
+        if self.task_id in COLLAB_RESULTS:
+            COLLAB_RESULTS[self.task_id]["status"] = "running"
+            
+        return answer
+
     def _call(self, tier: str, system: str, user_prompt: str) -> str:
         """One metered model call; transcript + budget accounting included."""
         if self.total_cost >= self.session_budget:
             raise SessionBudgetExceeded(
-                f"Session budget ${self.session_budget:.2f} exhausted "
+                f"Session budget ${self.session_budget:.2f} exceeded "
                 f"(spent ${self.total_cost:.4f})."
             )
         env = CacheEnvelope(f"{system}\n{TERSE}", "", f"Collaboration task: {self.task_id}")
@@ -96,8 +135,37 @@ class CollaborationSession:
             user_prompt=user_prompt,
             warm_cache=False
         )
-        self.total_cost += cost
+
+        with self._cost_lock:
+            self.total_cost += cost
         model = self.client.select_model(tier, self.provider)
+
+        # User moderation pause loop
+        while True:
+            need_user_line = None
+            for line in text.splitlines():
+                if line.strip().startswith("NEED-USER:"):
+                    need_user_line = line.strip()
+                    break
+            if need_user_line is None:
+                break
+                
+            self._log("assistant", text, cost=cost, model=model, tier=tier)
+            answer = self._await_user_input(need_user_line)
+            
+            user_prompt = f"{user_prompt}\n\n[USER ANSWER TO {need_user_line}]:\n{answer}"
+            text, cost = self.client.execute_task(
+                task_id=self.task_id,
+                tier=tier,
+                provider=self.provider,
+                cache_envelope=env,
+                user_prompt=user_prompt,
+                warm_cache=False
+            )
+            with self._cost_lock:
+                self.total_cost += cost
+            model = self.client.select_model(tier, self.provider)
+
         self._log("assistant", text, cost=cost, model=model, tier=tier)
 
         # API-error fallback text is NOT a contract, implementation, or review.
@@ -119,6 +187,27 @@ class CollaborationSession:
                 f"Session budget ${self.session_budget:.2f} exceeded "
                 f"(spent ${self.total_cost:.4f})."
             )
+        return text
+
+    def _call_branch(self, branch: str, provider: str, system: str, user_prompt: str, turn_index: int) -> str:
+        if self.total_cost >= self.session_budget:
+            raise SessionBudgetExceeded(
+                f"Session budget ${self.session_budget:.2f} exceeded "
+                f"(spent ${self.total_cost:.4f})."
+            )
+        env = CacheEnvelope(f"{system}\n{TERSE}", "", f"Collaboration task: {self.task_id} Branch {branch}")
+        text, cost = self.client.execute_task(
+            task_id=self.task_id,
+            tier="explorer",
+            provider=provider,
+            cache_envelope=env,
+            user_prompt=user_prompt,
+            warm_cache=False
+        )
+        with self._cost_lock:
+            self.total_cost += cost
+        model = self.client.select_model("explorer", provider)
+        self._log_branch(branch, turn_index, "assistant", text, cost=cost, model=f"Branch {branch}", tier="explorer")
         return text
 
     @staticmethod
@@ -149,79 +238,181 @@ class CollaborationSession:
                 f"Goal: {goal}\nWrite the contract and criteria."
             )
 
-            # 2. Explorer: at most one clarifying question
-            self._marker("[CHAMBER] Phase 2 — Explorer may ask ONE clarifying question")
-            question = self._call(
-                "explorer",
-                "You are the Explorer. Read the contract. If exactly one thing is ambiguous "
-                "enough to block implementation, ask that ONE question. Otherwise reply NONE.",
-                f"Contract:\n{contract}\n\nYour one question, or NONE:"
-            )
-            answer = ""
-            if question.strip().upper() not in ("NONE", "NONE.") and self.questions_used < self.MAX_CLARIFYING_QUESTIONS:
-                self.questions_used = 1
-                answer = self._call(
+            if self.mode == "tree":
+                # 2. Parallel Explorer branches
+                self._marker("[CHAMBER] Phase 2 — Parallel Explorer branches convening")
+                branches = ["A", "B", "C"]
+                branch_providers = {"A": "anthropic", "B": "openai", "C": "gemini"}
+                
+                results_dict = {}
+                errors_dict = {}
+                
+                branch_turn_indices = {}
+                for b in branches:
+                    branch_turn_indices[b] = self._turn
+
+                def run_explorer_branch(b_name):
+                    try:
+                        self._marker_branch(b_name, f"[CHAMBER] Branch {b_name} executing parallel exploration")
+                        impl = self._call_branch(
+                            branch=b_name,
+                            provider=branch_providers[b_name],
+                            system="You are the Explorer. Implement the contract exactly. Output the implementation only.",
+                            user_prompt=f"Contract:\n{contract}\n\nImplement now.",
+                            turn_index=branch_turn_indices[b_name]
+                        )
+                        results_dict[b_name] = impl
+                    except Exception as e:
+                        errors_dict[b_name] = e
+                        self._marker_branch(b_name, f"[CHAMBER] Branch {b_name} failed: {str(e)}")
+
+                threads = []
+                for b in branches:
+                    t = threading.Thread(target=run_explorer_branch, args=(b,))
+                    threads.append(t)
+                    t.start()
+                    
+                for t in threads:
+                    t.join()
+                    
+                if not results_dict:
+                    raise SessionApiFailure("All parallel explorer branches failed to execute.")
+                    
+                # Increment self._turn past the branches turn
+                self._turn += 1
+
+                # Thinker review / selection
+                self._marker("[CHAMBER] Phase 3 — Thinker selects best branch")
+                anonymized_prompts = []
+                for b_name, impl in sorted(results_dict.items()):
+                    anonymized_prompts.append(f"--- Branch {b_name} ---\n{impl}")
+                branches_str = "\n\n".join(anonymized_prompts)
+                
+                verdict = self._call(
                     "thinker",
-                    "You are the Thinker. Answer the Explorer's clarifying question in <=3 sentences.",
-                    f"Contract:\n{contract}\n\nQuestion:\n{question}"
+                    "You are the Thinker. Evaluate the anonymized parallel solution branches. "
+                    "Output your choice exactly as 'SELECT <branch>' (e.g. SELECT A) on the first line, "
+                    "followed by a detailed rationale. If they should be merged, provide merging instructions.",
+                    f"Contract:\n{contract}\n\nCandidate Branches:\n{branches_str}\n\nChoose/Merge:"
                 )
 
-            # 3. Implement
-            self._marker("[CHAMBER] Phase 3 — Explorer implements")
-            clarification = f"\nClarification: {answer}" if answer else ""
-            implementation = self._call(
-                "explorer",
-                "You are the Explorer. Implement the contract exactly. Output the implementation only.",
-                f"Contract:\n{contract}{clarification}\n\nImplement now."
-            )
-
-            # 4/5. Review loop
-            approved = False
-            for round_no in range(1, self.MAX_REVIEW_ROUNDS + 1):
-                self.rounds_used = round_no
-                self._marker(f"[CHAMBER] Review round {round_no}/{self.MAX_REVIEW_ROUNDS}")
-                review = self._call(
-                    "thinker",
-                    "You are the Thinker reviewing the Explorer's implementation against the contract. "
-                    "If it satisfies every criterion reply with first line exactly 'APPROVE'. "
-                    "Otherwise reply ONLY a numbered list of concrete defects.",
-                    f"Contract:\n{contract}\n\nImplementation:\n{implementation}\n\nVerdict:"
-                )
-                if self._is_approved(review):
+                selected_branch = None
+                first_line = verdict.strip().splitlines()[0].strip().upper() if verdict else ""
+                if "SELECT A" in first_line:
+                    selected_branch = "A"
+                elif "SELECT B" in first_line:
+                    selected_branch = "B"
+                elif "SELECT C" in first_line:
+                    selected_branch = "C"
+                    
+                if selected_branch and selected_branch in results_dict:
+                    self._marker(f"[CHAMBER] Thinker selected Branch {selected_branch}")
+                    implementation = results_dict[selected_branch]
                     approved = True
-                    break
-                if round_no == self.MAX_REVIEW_ROUNDS:
-                    break  # cap reached; do not revise again
+                    result["selected_branch"] = selected_branch
+                else:
+                    self._marker("[CHAMBER] Thinker did not make a clear selection or requested a merge. Defaulting to first successful branch.")
+                    selected_branch = sorted(results_dict.keys())[0]
+                    implementation = results_dict[selected_branch]
+                    approved = False
+
+                result["final_output"] = implementation
+                
+                if approved:
+                    self._marker("[CHAMBER] APPROVED — session complete")
+                    result["status"] = "approved"
+                    result["approved"] = True
+                else:
+                    self._marker("[CHAMBER] Review loop complete without clear approval — clean-room escalation")
+                    if self.escalator is not None:
+                        try:
+                            final = self.escalator.package_and_escalate(
+                                task_id=self.task_id,
+                                original_prompt=f"Goal: {goal}\nContract:\n{contract}",
+                                pre_attempt_snapshot="[Collaboration session escalation]",
+                                failed_output=implementation,
+                                provider=self.provider,
+                                pre_attempt_decisions=contract,
+                            )
+                            result["final_output"] = final
+                            self._log("assistant", final, model=self.client.select_model("thinker", self.provider), tier="thinker")
+                        except PermissionError as pe:
+                            self._marker(f"[CHAMBER] Escalation blocked by ledger: {pe}")
+                    result["status"] = "escalated"
+            else:
+                # 2. Explorer: at most one clarifying question
+                self._marker("[CHAMBER] Phase 2 — Explorer may ask ONE clarifying question")
+                question = self._call(
+                    "explorer",
+                    "You are the Explorer. Read the contract. If exactly one thing is ambiguous "
+                    "enough to block implementation, ask that ONE question. Otherwise reply NONE.",
+                    f"Contract:\n{contract}\n\nYour one question, or NONE:"
+                )
+                answer = ""
+                if question.strip().upper() not in ("NONE", "NONE.") and self.questions_used < self.MAX_CLARIFYING_QUESTIONS:
+                    self.questions_used = 1
+                    answer = self._call(
+                        "thinker",
+                        "You are the Thinker. Answer the Explorer's clarifying question in <=3 sentences.",
+                        f"Contract:\n{contract}\n\nQuestion:\n{question}"
+                    )
+
+                # 3. Implement
+                self._marker("[CHAMBER] Phase 3 — Explorer implements")
+                clarification = f"\nClarification: {answer}" if answer else ""
                 implementation = self._call(
                     "explorer",
-                    "You are the Explorer. Fix ONLY the numbered defects. Output the full revised implementation.",
-                    f"Contract:\n{contract}\n\nCurrent implementation:\n{implementation}\n\nDefects:\n{review}\n\nRevise."
+                    "You are the Explorer. Implement the contract exactly. Output the implementation only.",
+                    f"Contract:\n{contract}{clarification}\n\nImplement now."
                 )
 
-            result["final_output"] = implementation
+                # 4/5. Review loop
+                approved = False
+                for round_no in range(1, self.MAX_REVIEW_ROUNDS + 1):
+                    self.rounds_used = round_no
+                    self._marker(f"[CHAMBER] Review round {round_no}/{self.MAX_REVIEW_ROUNDS}")
+                    review = self._call(
+                        "thinker",
+                        "You are the Thinker reviewing the Explorer's implementation against the contract. "
+                        "If it satisfies every criterion reply with first line exactly 'APPROVE'. "
+                        "Otherwise reply ONLY a numbered list of concrete defects.",
+                        f"Contract:\n{contract}\n\nImplementation:\n{implementation}\n\nVerdict:"
+                    )
+                    if self._is_approved(review):
+                        approved = True
+                        break
+                    if round_no == self.MAX_REVIEW_ROUNDS:
+                        break  # cap reached; do not revise again
+                    implementation = self._call(
+                        "explorer",
+                        "You are the Explorer. Fix ONLY the numbered defects. Output the full revised implementation.",
+                        f"Contract:\n{contract}\n\nCurrent implementation:\n{implementation}\n\nDefects:\n{review}\n\nRevise."
+                    )
 
-            if approved:
-                self._marker("[CHAMBER] APPROVED — session complete")
-                result["status"] = "approved"
-                result["approved"] = True
-            else:
-                # 6. Cap reached without approval -> clean-room escalation
-                self._marker("[CHAMBER] Review cap reached without approval — clean-room escalation")
-                if self.escalator is not None:
-                    try:
-                        final = self.escalator.package_and_escalate(
-                            task_id=self.task_id,
-                            original_prompt=f"Goal: {goal}\nContract:\n{contract}",
-                            pre_attempt_snapshot="[Collaboration session escalation]",
-                            failed_output=implementation,
-                            provider=self.provider,
-                            pre_attempt_decisions=contract,
-                        )
-                        result["final_output"] = final
-                        self._log("assistant", final, model=self.client.select_model("thinker", self.provider), tier="thinker")
-                    except PermissionError as pe:
-                        self._marker(f"[CHAMBER] Escalation blocked by ledger: {pe}")
-                result["status"] = "escalated"
+                result["final_output"] = implementation
+
+                if approved:
+                    self._marker("[CHAMBER] APPROVED — session complete")
+                    result["status"] = "approved"
+                    result["approved"] = True
+                else:
+                    # 6. Cap reached without approval -> clean-room escalation
+                    self._marker("[CHAMBER] Review cap reached without approval — clean-room escalation")
+                    if self.escalator is not None:
+                        try:
+                            final = self.escalator.package_and_escalate(
+                                task_id=self.task_id,
+                                original_prompt=f"Goal: {goal}\nContract:\n{contract}",
+                                pre_attempt_snapshot="[Collaboration session escalation]",
+                                failed_output=implementation,
+                                provider=self.provider,
+                                pre_attempt_decisions=contract,
+                            )
+                            result["final_output"] = final
+                            self._log("assistant", final, model=self.client.select_model("thinker", self.provider), tier="thinker")
+                        except PermissionError as pe:
+                            self._marker(f"[CHAMBER] Escalation blocked by ledger: {pe}")
+                    result["status"] = "escalated"
 
         except SessionApiFailure as saf:
             self._marker(f"[CHAMBER] HALTED — {saf}")
