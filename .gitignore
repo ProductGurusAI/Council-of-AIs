@@ -1,0 +1,18 @@
+# Secrets — never commit
+.env
+.council/verifier_tokens.json
+
+# Runtime state (not part of the audit trail)
+ledger_store.json
+models.json
+tasks_store/
+.council/graph.db
+.council/memory/transcripts.db
+.council/routing_log.jsonl
+.council/completion_gates/
+.council/quarantine/
+
+# Python
+__pycache__/
+*.pyc
+.DS_Store

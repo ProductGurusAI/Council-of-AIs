@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Council of AIs Workbench</title>
+    <!-- Pinned Lucide Icons -->
+    <script src="https://unpkg.com/lucide@0.400.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="index.css">
+    <script src="index.js?v=2"></script>
+</head>
+<body>
+    <!-- Accessibility Skip Link -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
+    <div class="glow-orb orb-1" aria-hidden="true"></div>
+    <div class="glow-orb orb-2" aria-hidden="true"></div>
+
+    <!-- Mobile Navigation Header -->
+    <header class="mobile-header" aria-label="Mobile Navigation Bar">
+        <div class="brand">
+            <div class="brand-logo" aria-hidden="true"><i data-lucide="shield-alert"></i></div>
+            <div class="brand-name">
+                <h2>Council of AIs</h2>
+                <span>Workbench v1.0</span>
+            </div>
+        </div>
+        <button class="mobile-nav-toggle" id="btn-mobile-toggle" aria-label="Toggle Navigation Menu" aria-expanded="false" aria-controls="sidebar-menu">
+            <i data-lucide="menu"></i>
+        </button>
+    </header>
+
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar" id="sidebar-menu" aria-label="Sidebar Menu">
+            <div class="brand">
+                <div class="brand-logo" aria-hidden="true"><i data-lucide="shield-alert"></i></div>
+                <div class="brand-name">
+                    <h2>Council of AIs</h2>
+                    <span>Workbench v1.0</span>
+                </div>
+            </div>
+            <nav class="nav-menu" role="tablist" aria-label="Workbench tabs">
+                <button class="nav-btn active" role="tab" id="tab-overview" aria-selected="true" aria-controls="panel-overview" data-target="panel-overview">
+                    <i data-lucide="layout-dashboard" aria-hidden="true"></i> Overview
+                </button>
+                <button class="nav-btn" role="tab" id="tab-tasks" aria-selected="false" aria-controls="panel-tasks" data-target="panel-tasks" tabindex="-1">
+                    <i data-lucide="folder-open" aria-hidden="true"></i> Task Explorer
+                </button>
+                <button class="nav-btn" role="tab" id="tab-graph" aria-selected="false" aria-controls="panel-graph" data-target="panel-graph" tabindex="-1">
+                    <i data-lucide="network" aria-hidden="true"></i> Codebase Graph
+                </button>
+                <button class="nav-btn" role="tab" id="tab-playground" aria-selected="false" aria-controls="panel-playground" data-target="panel-playground" tabindex="-1">
+                    <i data-lucide="play-circle" aria-hidden="true"></i> Chat Playground
+                </button>
+                <button class="nav-btn" role="tab" id="tab-chamber" aria-selected="false" aria-controls="panel-chamber" data-target="panel-chamber" tabindex="-1">
+                    <i data-lucide="users" aria-hidden="true"></i> Council Chamber
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="system-status">
+                    <span class="status-dot online" aria-hidden="true"></span>
+                    <span>System Connected</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content" id="main-content" tabindex="-1">
+            <!-- HEADER -->
+            <header class="main-header">
+                <h1 id="page-title">Overview Dashboard</h1>
+                <div class="budget-tracker" aria-label="Remaining Budget Progress Tracker">
+                    <div class="budget-progress-container">
+                        <div class="budget-labels">
+                            <span class="lbl">Wallet Budget</span>
+                            <span class="val" id="lbl-budget-spent" aria-live="polite">$0.00 / $75.00</span>
+                        </div>
+                        <div class="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" id="budget-progress-bar">
+                            <div class="progress-fill" id="bar-budget-progress"></div>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- PANEL: OVERVIEW -->
+            <section class="content-panel active" id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
+                <h2 class="sr-only">Overview Insights</h2>
+                <div class="grid-stats">
+                    <div class="stat-card" tabindex="0">
+                        <div class="stat-header">
+                            <h3>Remaining Budget</h3>
+                            <i data-lucide="wallet" aria-hidden="true"></i>
+                        </div>
+                        <div class="stat-val" id="stat-remaining-budget" aria-live="polite">$0.00</div>
+                        <p class="stat-sub">Out of total allocated budget</p>
+                    </div>
+                    <div class="stat-card" tabindex="0">
+                        <div class="stat-header">
+                            <h3>Total Spend</h3>
+                            <i data-lucide="banknote" aria-hidden="true"></i>
+                        </div>
+                        <div class="stat-val" id="stat-total-spent" aria-live="polite">$0.00</div>
+                        <p class="stat-sub">Across all task runs</p>
+                    </div>
+                    <div class="stat-card" tabindex="0">
+                        <div class="stat-header">
+                            <h3>Orchestration Overhead</h3>
+                            <i data-lucide="cpu" aria-hidden="true"></i>
+                        </div>
+                        <div class="stat-val" id="stat-overhead-pct" aria-live="polite">0.00%</div>
+                        <p class="stat-sub" id="stat-overhead-spent" aria-live="polite">Spent: $0.00</p>
+                    </div>
+                    <div class="stat-card" tabindex="0">
+                        <div class="stat-header">
+                            <h3>Fail-Safe Escalations</h3>
+                            <i data-lucide="arrow-up-right" aria-hidden="true"></i>
+                        </div>
+                        <div class="stat-val" id="stat-escalation-count" aria-live="polite">0</div>
+                        <p class="stat-sub">Failed checks routed premium</p>
+                    </div>
+                </div>
+
+                <div class="grid-layout-2">
+                    <!-- Routing Proxies Graph / Heuristics -->
+                    <div class="glass-card" tabindex="0">
+                        <div class="card-header">
+                            <h2>Average Turn Cost by Route</h2>
+                            <i data-lucide="bar-chart-2" aria-hidden="true"></i>
+                        </div>
+                        <div class="card-body">
+                            <div class="route-costs-container">
+                                <div class="route-item">
+                                    <div class="route-info">
+                                        <span class="route-name thinker-route">Thinker Route (Premium)</span>
+                                        <span class="route-cost-val" id="cost-thinker" aria-live="polite">$0.00000</span>
+                                    </div>
+                                    <div class="route-bar">
+                                        <div class="route-bar-fill thinker-fill" id="bar-thinker"></div>
+                                    </div>
+                                </div>
+                                <div class="route-item">
+                                    <div class="route-info">
+                                        <span class="route-name explorer-route">Explorer Route (Standard)</span>
+                                        <span class="route-cost-val" id="cost-explorer" aria-live="polite">$0.00000</span>
+                                    </div>
+                                    <div class="route-bar">
+                                        <div class="route-bar-fill explorer-fill" id="bar-explorer"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- System Invariant Rules / Config -->
+                    <div class="glass-card" tabindex="0">
+                        <div class="card-header">
+                            <h2>System Controls</h2>
+                            <i data-lucide="sliders" aria-hidden="true"></i>
+                        </div>
+                        <div class="card-body controls-list">
+                            <div class="control-row">
+                                <span class="control-name">Per-Task Cap Limit</span>
+                                <span class="control-badge" id="ctrl-task-cap">$3.00</span>
+                            </div>
+                            <div class="control-row">
+                                <span class="control-name">Safety Budget Reserve Floor</span>
+                                <span class="control-badge" id="ctrl-reserve-floor">$10.00</span>
+                            </div>
+                            <div class="control-row">
+                                <span class="control-name">Manual Override Count</span>
+                                <span class="control-badge" id="ctrl-override-count">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Credentials Card (Polished to remove inline styling) -->
+                <div class="glass-card keys-card">
+                    <div class="card-header">
+                        <h2>Credentials & API Keys</h2>
+                        <i data-lucide="key" aria-hidden="true"></i>
+                    </div>
+                    <div class="card-body">
+                        <p class="stat-sub keys-desc">Enter API keys to enable real model execution instead of local simulation mode. Keys are saved securely to your workspace <code>.env</code> file and loaded into the active session.</p>
+                        
+                        <div class="keys-grid-container">
+                            <div class="grid-layout-2 keys-grid">
+                                <div class="form-group">
+                                    <label for="key-anthropic" class="form-label">Anthropic API Key (Claude):</label>
+                                    <input type="password" id="key-anthropic" placeholder="sk-ant-..." class="form-input">
+                                </div>
+                                <div class="form-group">
+                                    <label for="key-gemini" class="form-label">Google Gemini API Key:</label>
+                                    <input type="password" id="key-gemini" placeholder="AIzaSy..." class="form-input">
+                                </div>
+                                <div class="form-group span-2">
+                                    <label for="key-openai" class="form-label">OpenAI API Key (GPT):</label>
+                                    <input type="password" id="key-openai" placeholder="sk-proj-..." class="form-input">
+                                </div>
+                            </div>
+
+                            <!-- Custom Keys dynamic list -->
+                            <div class="custom-keys-section">
+                                <h3 class="custom-keys-title">Custom AI & Provider Keys</h3>
+                                <div id="custom-keys-list" class="custom-keys-list">
+                                    <!-- Dynamic rows injected here -->
+                                </div>
+                                <button type="button" class="btn-add-custom-key" id="btn-add-custom-key">
+                                    <i data-lucide="plus" aria-hidden="true"></i> Add Custom AI Key
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button class="action-btn keys-save-btn" id="btn-save-keys"><i data-lucide="save" aria-hidden="true"></i> Save & Load Keys</button>
+                            <span id="keys-status-msg" class="status-msg" aria-live="polite"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Advanced Config Details (Collapsible progressive disclosure) -->
+                <details class="glass-card advanced-config-card" id="advanced-config-details">
+                    <summary class="card-header advanced-config-header">
+                        <div class="header-title">
+                            <h2>Advanced Model Routing & Tiers</h2>
+                            <i data-lucide="settings-2" aria-hidden="true"></i>
+                        </div>
+                        <span class="summary-toggle-icon"><i data-lucide="chevron-down" aria-hidden="true"></i></span>
+                    </summary>
+                    <div class="card-body advanced-config-body">
+                        <p class="stat-sub keys-desc">Map registered models to execution tiers, adjust reasoning/thinking effort configurations, and run objective benchmark probes on new models.</p>
+                        
+                        <!-- 1. Tier Model Mappings Dropdowns -->
+                        <div class="advanced-grid">
+                            <!-- Thinker Tier Row -->
+                            <div class="form-group">
+                                <label for="select-thinker-prov" class="form-label">Thinker Provider (Company):</label>
+                                <select id="select-thinker-prov" class="form-input form-select prov-dropdown-target">
+                                    <option value="anthropic">Anthropic (Claude)</option>
+                                    <option value="openai">OpenAI (GPT)</option>
+                                    <option value="gemini">Google GenAI (Gemini)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="select-thinker" class="form-label">Thinker Model Mapping:</label>
+                                <select id="select-thinker" class="form-input form-select model-dropdown-target"></select>
+                                <span class="cost-impact-tag" id="cost-thinker-est">Est. cost: --</span>
+                            </div>
+
+                            <!-- Explorer Tier Row -->
+                            <div class="form-group">
+                                <label for="select-explorer-prov" class="form-label">Explorer Provider (Company):</label>
+                                <select id="select-explorer-prov" class="form-input form-select prov-dropdown-target">
+                                    <option value="anthropic">Anthropic (Claude)</option>
+                                    <option value="openai">OpenAI (GPT)</option>
+                                    <option value="gemini">Google GenAI (Gemini)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="select-explorer" class="form-label">Explorer Model Mapping:</label>
+                                <select id="select-explorer" class="form-input form-select model-dropdown-target"></select>
+                                <span class="cost-impact-tag" id="cost-explorer-est">Est. cost: --</span>
+                            </div>
+
+                            <!-- Cheap Tier Row -->
+                            <div class="form-group">
+                                <label for="select-cheap-prov" class="form-label">Cheap Provider (Company):</label>
+                                <select id="select-cheap-prov" class="form-input form-select prov-dropdown-target">
+                                    <option value="anthropic">Anthropic (Claude)</option>
+                                    <option value="openai">OpenAI (GPT)</option>
+                                    <option value="gemini">Google GenAI (Gemini)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="select-cheap" class="form-label">Cheap Model Mapping:</label>
+                                <select id="select-cheap" class="form-input form-select model-dropdown-target"></select>
+                                <span class="cost-impact-tag" id="cost-cheap-est">Est. cost: --</span>
+                            </div>
+                        </div>
+
+                        <!-- 2. Thinking Effort Levels -->
+                        <div class="thinking-section">
+                            <h3 class="custom-keys-title">Thinking & Reasoning Budgets</h3>
+                            <div class="grid-layout-2">
+                                <div class="form-group">
+                                    <label for="select-thinker-effort" class="form-label">Thinker Reasoning Effort:</label>
+                                    <select id="select-thinker-effort" class="form-input form-select">
+                                        <option value="off">Off (Standard reasoning)</option>
+                                        <option value="low">Low effort</option>
+                                        <option value="medium">Medium effort</option>
+                                        <option value="high">High effort</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="select-explorer-effort" class="form-label">Explorer Reasoning Effort:</label>
+                                    <select id="select-explorer-effort" class="form-input form-select">
+                                        <option value="off">Off (Standard reasoning)</option>
+                                        <option value="low">Low effort</option>
+                                        <option value="medium">Medium effort</option>
+                                        <option value="high">High effort</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. Dynamic Model Probe Benchmark Suite -->
+                        <div class="probe-section">
+                            <h3 class="custom-keys-title">Model Probe Benchmark Suite</h3>
+                            <p class="stat-sub keys-desc">Run 6 standardized tests (code-gen compilation, fact extraction, instructions) to evaluate a new model's performance and auto-assign its optimal tier.</p>
+                            <div class="probe-row">
+                                <select id="select-probe-prov" class="form-input form-select" style="max-width: 200px; margin-right: 8px;">
+                                    <option value="openai">OpenAI</option>
+                                    <option value="anthropic">Anthropic</option>
+                                    <option value="gemini">Gemini</option>
+                                </select>
+                                <input type="text" id="input-probe-model" placeholder="e.g. o3-mini" class="form-input">
+                                <button type="button" class="action-btn btn-run-probe" id="btn-run-probe">
+                                    <i data-lucide="play" aria-hidden="true"></i> Run Objective Benchmark
+                                </button>
+                            </div>
+                            <div id="probe-results-container" class="probe-results-container hidden">
+                                <!-- Dynamic results list injected here -->
+                            </div>
+
+                            <h3 class="custom-keys-title" style="margin-top: 24px;">Global Performance Benchmark</h3>
+                            <p class="stat-sub keys-desc">Execute multi-track benchmark evaluations (Thinker: flaws/logic, Explorer: tests/summaries, Cheap: 20 intent routes) across all configured models and auto-calculate optimal tier mapping configurations.</p>
+                            <div class="probe-row">
+                                <button type="button" class="action-btn" id="btn-run-bench" style="background: linear-gradient(135deg, var(--accent-blue), #5046e5);">
+                                    <i data-lucide="play" aria-hidden="true"></i> Run Performance Benchmark
+                                </button>
+                            </div>
+                            <div id="bench-results-container" class="probe-results-container hidden">
+                                <!-- Dynamic results injected here -->
+                            </div>
+                        </div>
+
+                        <div class="form-actions advanced-actions">
+                            <button class="action-btn" id="btn-save-models-config"><i data-lucide="save" aria-hidden="true"></i> Save Model Configurations</button>
+                            <span id="models-status-msg" class="status-msg" aria-live="polite"></span>
+                        </div>
+                    </div>
+                </details>
+            </section>
+
+            <!-- PANEL: TASKS EXPLORER -->
+            <section class="content-panel" id="panel-tasks" role="tabpanel" aria-labelledby="tab-tasks">
+                <h2 class="sr-only">Tasks Explorer Pane</h2>
+                <div class="tasks-explorer-layout">
+                    <!-- Left Sidebar Task List -->
+                    <div class="tasks-sidebar">
+                        <div class="list-search">
+                            <i data-lucide="search" aria-hidden="true"></i>
+                            <input type="text" id="task-search-input" placeholder="Search tasks..." aria-label="Search execution task runs">
+                        </div>
+                        <div class="task-list" id="task-list-container" role="feed" aria-label="Task runs logs list">
+                            <!-- Tasks injected here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Right Panel Task Details -->
+                    <div class="task-details-view" id="task-details-pane" aria-live="polite">
+                        <div class="empty-state">
+                            <i data-lucide="folder" aria-hidden="true"></i>
+                            <p>Select a task from the list to inspect execution history and memory Front-Matter.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PANEL: CODEBASE GRAPH -->
+            <section class="content-panel" id="panel-graph" role="tabpanel" aria-labelledby="tab-graph">
+                <h2 class="sr-only">Codebase Blast Radius Dependency Graph</h2>
+                <div class="graph-layout">
+                    <div class="graph-controls-card">
+                        <h2>Graph Reachability Controls</h2>
+                        <p class="desc">The codebase graph visualizes Python import dependencies. Orange nodes are high-stakes modules directly matching tags (auth, schema, security); yellow nodes can reach them within k=2 hops and will trigger thinker escalations.</p>
+                        <div class="graph-legend">
+                            <div class="legend-item"><span class="legend-color tagged" aria-hidden="true"></span> Tagged (High Stakes)</div>
+                            <div class="legend-item"><span class="legend-color reaching" aria-hidden="true"></span> Reaches Tagged (k=2)</div>
+                            <div class="legend-item"><span class="legend-color clean" aria-hidden="true"></span> Clean Code Nodes</div>
+                        </div>
+                        <button class="action-btn" id="btn-reindex-graph"><i data-lucide="refresh-cw" aria-hidden="true"></i> Reindex Codebase</button>
+                    </div>
+                    <div class="graph-canvas-container glass-card">
+                        <canvas id="graph-canvas" aria-label="Codebase dependency node network graph" role="img"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PANEL: PLAYGROUND -->
+            <section class="content-panel" id="panel-playground" role="tabpanel" aria-labelledby="tab-playground">
+                <h2 class="sr-only">Interactive Playground chat console</h2>
+                <div class="playground-layout">
+                    <div class="playground-pane">
+                        <div class="playground-chat" id="playground-chat-history" aria-live="polite">
+                            <div class="chat-system-message">
+                                <h3>Interactive Workbench Session</h3>
+                                <p>Enter a task goal below to spawn an autonomous session. The cascade router will classify your intent, and the verifier will check completions.</p>
+                            </div>
+                        </div>
+                        
+                        <div class="chat-input-area">
+                            <div class="input-row">
+                                <textarea id="txt-chat-input" placeholder="Enter task instruction or follow-up prompt..." aria-label="Chat prompt message text input"></textarea>
+                                <button class="btn-send" id="btn-chat-send"><i data-lucide="send" aria-hidden="true"></i> Send</button>
+                            </div>
+                            <div class="playground-actions-bar hidden" id="playground-close-bar">
+                                <span class="active-task-lbl" id="lbl-active-task-id">Active: None</span>
+                                <button class="btn-close-task" id="btn-chat-close"><i data-lucide="check-square" aria-hidden="true"></i> Close Task & Commit Git</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- COUNCIL CHAMBER -->
+            <section class="content-panel" id="panel-chamber" role="tabpanel" aria-labelledby="tab-chamber">
+                <div class="chamber-header">
+                    <div>
+                        <h3>Council Chamber — Live Collaboration</h3>
+                        <p>Thinker drafts the contract, Explorer implements, Thinker reviews. Bounded: 1 clarifying question, 3 review rounds, hard budget cap.</p>
+                    </div>
+                    <div class="chamber-cost" id="chamber-cost" aria-live="polite">Session cost: $0.00000</div>
+                </div>
+                <div class="chamber-controls">
+                    <input type="text" id="chamber-goal" class="form-input" placeholder="Goal, e.g. 'Write a rate limiter class with tests'" aria-label="Collaboration goal" />
+                    <select id="chamber-budget" class="form-input form-select" aria-label="Session budget">
+                        <option value="0.25">$0.25 budget</option>
+                        <option value="0.50" selected>$0.50 budget</option>
+                        <option value="1.00">$1.00 budget</option>
+                        <option value="2.00">$2.00 budget</option>
+                    </select>
+                    <button class="btn-send" id="btn-chamber-start"><i data-lucide="play" aria-hidden="true"></i> Convene</button>
+                </div>
+                <div class="chamber-status hidden" id="chamber-status"></div>
+                <div class="chamber-feed" id="chamber-feed" aria-live="polite">
+                    <div class="chamber-empty" id="chamber-empty">
+                        <i data-lucide="users" aria-hidden="true"></i>
+                        <p>No session yet. Set a goal and convene the Council.</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- MODAL: ENDGAME CONFIRMATION -->
+    <div class="modal-overlay hidden" id="endgame-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="endgame-modal-msg">
+        <div class="modal-card glass-card">
+            <div class="modal-header">
+                <i data-lucide="alert-triangle" class="warning-icon" aria-hidden="true"></i>
+                <h2 id="modal-title">Endgame Budget Warning</h2>
+            </div>
+            <div class="modal-body">
+                <p id="endgame-modal-msg">Remaining budget is below $15.00. Continuing requires explicit authorization to spend on the premium Thinker tier.</p>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-confirm" id="btn-modal-confirm">Authorize Spend</button>
+                <button class="btn-cancel" id="btn-modal-cancel">Abort Task</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
