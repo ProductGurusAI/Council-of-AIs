@@ -410,7 +410,7 @@ document.addEventListener("DOMContentLoaded", () => {
         resizeCanvas();
         graphCtx.clearRect(0, 0, canvasWidth, canvasHeight);
         graphCtx.font = "14px 'Fira Sans', sans-serif";
-        graphCtx.fillStyle = "var(--text-dim)";
+        graphCtx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text-dim').trim() || "#82828c";
         graphCtx.textAlign = "center";
         graphCtx.fillText("Loading Codebase Imports Graph...", canvasWidth / 2, canvasHeight / 2);
 
@@ -423,7 +423,7 @@ document.addEventListener("DOMContentLoaded", () => {
             .catch(err => {
                 graphCtx.clearRect(0, 0, canvasWidth, canvasHeight);
                 graphCtx.font = "14px 'Fira Sans', sans-serif";
-                graphCtx.fillStyle = "var(--accent-red)";
+                graphCtx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent-red').trim() || "#ef4444";
                 graphCtx.textAlign = "center";
                 graphCtx.fillText("Failed to load dependency graph: " + (err.message || err), canvasWidth / 2, canvasHeight / 2);
             });
@@ -559,6 +559,12 @@ document.addEventListener("DOMContentLoaded", () => {
         graphCtx.clearRect(0, 0, canvasWidth, canvasHeight);
         graphCtx.save();
         
+        // Get computed style colors to support CSS theme variables in Canvas
+        const colorBlue = getComputedStyle(document.documentElement).getPropertyValue('--accent-blue').trim() || "#e0a300";
+        const colorRed = getComputedStyle(document.documentElement).getPropertyValue('--accent-red').trim() || "#ef4444";
+        const colorAmber = getComputedStyle(document.documentElement).getPropertyValue('--accent-amber').trim() || "#FFC321";
+        const colorTextPrimary = getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim() || "#f4f4f6";
+
         // Draw Edges
         graphCtx.strokeStyle = "rgba(255,255,255,0.06)";
         graphCtx.lineWidth = 1.5;
@@ -573,17 +579,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Draw Nodes
         graphData.nodes.forEach(n => {
-            let color = "var(--accent-blue)";
-            let shadow = "rgba(79, 172, 254, 0.4)";
+            let color = colorBlue;
+            let shadow = "rgba(224, 163, 0, 0.4)";
             let radius = 10;
 
             if (n.is_tagged) {
-                color = "var(--accent-red)";
+                color = colorRed;
                 shadow = "rgba(239, 68, 68, 0.6)";
                 radius = 12;
             } else if (n.reaches_tagged) {
-                color = "var(--accent-amber)";
-                shadow = "rgba(234, 179, 8, 0.6)";
+                color = colorAmber;
+                shadow = "rgba(255, 195, 33, 0.6)";
                 radius = 11;
             }
 
@@ -601,7 +607,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             // Labels
             if (hoverNode === n || n.is_tagged || graphData.nodes.length < 30) {
-                graphCtx.fillStyle = "var(--text-primary)";
+                graphCtx.fillStyle = colorTextPrimary;
                 graphCtx.font = (hoverNode === n) ? "bold 11px 'Fira Sans'" : "10px 'Fira Sans'";
                 graphCtx.textAlign = "center";
                 
@@ -671,7 +677,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Canvas loading state during reindexing
         graphCtx.clearRect(0, 0, canvasWidth, canvasHeight);
         graphCtx.font = "14px 'Fira Sans', sans-serif";
-        graphCtx.fillStyle = "var(--accent-amber)";
+        graphCtx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent-amber').trim() || "#FFC321";
         graphCtx.textAlign = "center";
         graphCtx.fillText("Reindexing codebase imports graph...", canvasWidth / 2, canvasHeight / 2);
         
@@ -690,7 +696,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 lucide.createIcons();
                 graphCtx.clearRect(0, 0, canvasWidth, canvasHeight);
                 graphCtx.font = "14px 'Fira Sans', sans-serif";
-                graphCtx.fillStyle = "var(--accent-red)";
+                graphCtx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent-red').trim() || "#ef4444";
                 graphCtx.textAlign = "center";
                 graphCtx.fillText("Reindexing failed: " + (err.message || err), canvasWidth / 2, canvasHeight / 2);
             });

@@ -302,7 +302,7 @@ class CouncilSession:
                 "  author_tier: (thinker, explorer, cheap)\n"
                 "  task_id: (the current task ID)\n"
                 "  reopen_condition: (only required if class is 'decision')\n\n"
-                "Note: Cheap/Explorer models (e.g. gpt-4o-mini, claude-3-5-sonnet, gemini-1.5-flash) can ONLY write 'progress' class. "
+                "Note: Cheap/Explorer models (e.g. gpt-4o-mini, claude-3-5-sonnet, gemini-3.5-flash) can ONLY write 'progress' class. "
                 "Only Thinker models (claude-3-opus) can write 'decision' or 'invariant'. Output the handoff file now."
             )
             

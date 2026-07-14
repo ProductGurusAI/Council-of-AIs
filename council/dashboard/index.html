@@ -425,12 +425,7 @@
                 </div>
                 <div class="chamber-controls">
                     <input type="text" id="chamber-goal" class="form-input" placeholder="Goal, e.g. 'Write a rate limiter class with tests'" aria-label="Collaboration goal" />
-                    <select id="chamber-budget" class="form-input form-select" aria-label="Session budget">
-                        <option value="0.25">$0.25 budget</option>
-                        <option value="0.50" selected>$0.50 budget</option>
-                        <option value="1.00">$1.00 budget</option>
-                        <option value="2.00">$2.00 budget</option>
-                    </select>
+                    <input type="number" id="chamber-budget" class="form-input" placeholder="Budget, e.g. 0.50" step="0.05" min="0.01" value="0.50" aria-label="Session budget" style="max-width: 140px;" />
                     <button class="btn-send" id="btn-chamber-start"><i data-lucide="play" aria-hidden="true"></i> Convene</button>
                 </div>
                 <div class="chamber-status hidden" id="chamber-status"></div>

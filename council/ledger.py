@@ -31,15 +31,15 @@ DEFAULT_MODEL_PRICING = {
     "gpt-4o":      {"provider": "openai", "input": 5.00,  "output": 15.00, "verified": True},
     "gpt-4o-mini": {"provider": "openai", "input": 0.150, "output": 0.600, "verified": True},
     # --- Google Gemini ---
-    "gemini-1.5-pro":   {"provider": "gemini", "input": 1.25,  "output": 5.00,  "verified": True},
-    "gemini-1.5-flash": {"provider": "gemini", "input": 0.075, "output": 0.300, "verified": True},
+    "gemini-3.5-pro":   {"provider": "gemini", "input": 1.25,  "output": 5.00,  "verified": True},
+    "gemini-3.5-flash": {"provider": "gemini", "input": 0.075, "output": 0.300, "verified": True},
 }
 
 # Tier -> model mapping, also overridable via models.json ("tier_models" key).
 DEFAULT_TIER_MODELS = {
     "anthropic": {"thinker": "claude-opus-4-8", "explorer": "claude-sonnet-5", "cheap": "claude-haiku-4-5-20251001"},
     "openai":    {"thinker": "gpt-4o",          "explorer": "gpt-4o-mini",     "cheap": "gpt-4o-mini"},
-    "gemini":    {"thinker": "gemini-1.5-pro",  "explorer": "gemini-1.5-flash","cheap": "gemini-1.5-flash"},
+    "gemini":    {"thinker": "gemini-3.5-pro",  "explorer": "gemini-3.5-flash","cheap": "gemini-3.5-flash"},
 }
 
 # Cache price derivation rules per provider: (write multiplier, read multiplier) on input rate.
@@ -64,15 +64,21 @@ def _derive_cache_prices(pricing: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[s
 MODEL_PRICING = _derive_cache_prices(json.loads(json.dumps(DEFAULT_MODEL_PRICING)))
 
 class Ledger:
-    def __init__(self, filepath: str = "ledger_store.json", total_budget: float = 75.00, reserve_floor: float = 10.00, per_task_cap: float = 3.00, pricing_config: str = "models.json"):
+    def __init__(self, filepath: str = "ledger_store.json", total_budget: float = None, reserve_floor: float = 10.00, per_task_cap: float = 3.00, pricing_config: str = "models.json"):
         self.filepath = filepath
-        self.total_budget = total_budget
         self.reserve_floor = reserve_floor
         self.per_task_cap = per_task_cap
 
         # Config-driven pricing & tier maps (PRD §11: prices in config, not code)
         self.pricing_config = pricing_config
         self.pricing, self.tier_models, self.tier_thinking, self.custom_providers = self._load_pricing_config()
+
+        if total_budget is None:
+            try:
+                total_budget = float(os.environ.get("TOTAL_BUDGET", "75.00"))
+            except (ValueError, TypeError):
+                total_budget = 75.00
+        self.total_budget = total_budget
 
         # Load or initialize the ledger data
         self.data = self._load_ledger()
@@ -117,16 +123,28 @@ class Ledger:
         return [m for m, r in self.pricing.items() if not r.get("verified", False)]
 
     def _load_ledger(self) -> Dict[str, Any]:
+        env_budget = None
+        try:
+            env_budget = float(os.environ.get("TOTAL_BUDGET", "75.00"))
+        except (ValueError, TypeError):
+            pass
+
         if os.path.exists(self.filepath):
             try:
                 with open(self.filepath, "r") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                # If env_budget is set and is different, automatically update the ledger configuration
+                if env_budget is not None and data.get("total_budget") != env_budget:
+                    data["total_budget"] = env_budget
+                    self._save_ledger(data)
+                return data
             except json.JSONDecodeError:
                 pass
         
         # Default initialization structure
+        initial_budget = env_budget if env_budget is not None else self.total_budget
         initial_structure = {
-            "total_budget": self.total_budget,
+            "total_budget": initial_budget,
             "reserve_floor": self.reserve_floor,
             "per_task_cap": self.per_task_cap,
             "total_spent": 0.0,
