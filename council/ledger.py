@@ -125,7 +125,9 @@ class Ledger:
     def _load_ledger(self) -> Dict[str, Any]:
         env_budget = None
         try:
-            env_budget = float(os.environ.get("TOTAL_BUDGET", "75.00"))
+            env_val = os.environ.get("TOTAL_BUDGET")
+            if env_val is not None:
+                env_budget = float(env_val)
         except (ValueError, TypeError):
             pass
 
