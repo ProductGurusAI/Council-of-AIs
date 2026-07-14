@@ -101,6 +101,7 @@ Enforcement of constraints is handled programmatically in code, never left to LL
 *   **Per-Task Cap ($3):** Any task exceeding $3 is automatically paused, requiring user confirmation to resume.
 *   **Endgame Mode:** When the remaining budget falls below $15, the router locks and prompts for confirmation on all Thinker routing.
 *   **Runaway Loop Protection:** Halts execution if a task loops over 3 consecutive times without state progress.
+*   **Machine-Local Config (`models.json`):** Any custom model tiers or price changes configured via the dashboard are saved locally to `models.json` (which is excluded from Git by default). Fresh clones automatically regenerate this file with default pricing and model mappings.
 
 ---
 

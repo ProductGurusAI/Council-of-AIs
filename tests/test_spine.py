@@ -1,5 +1,6 @@
 import unittest
 import os
+os.environ["TOTAL_BUDGET"] = "75.00"
 import shutil
 from council.ledger import Ledger
 from council.client import UnifiedClient, CacheEnvelope
@@ -8,6 +9,7 @@ from council.bypass import BypassLane
 class TestCouncilSpine(unittest.TestCase):
     
     def setUp(self):
+        os.environ["TOTAL_BUDGET"] = "75.00"
         # Create a temp directory or file for ledger store
         self.test_ledger_file = "test_ledger_store.json"
         if os.path.exists(self.test_ledger_file):

@@ -1,5 +1,6 @@
 import unittest
 import os
+os.environ["TOTAL_BUDGET"] = "75.00"
 import shutil
 import sqlite3
 from council.gates import CodebaseGraphManager, GateCascade
@@ -10,6 +11,7 @@ from council.client import UnifiedClient
 class TestGatesAndEscalation(unittest.TestCase):
     
     def setUp(self):
+        os.environ["TOTAL_BUDGET"] = "75.00"
         self.test_dir = "test_workspace_gates"
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)

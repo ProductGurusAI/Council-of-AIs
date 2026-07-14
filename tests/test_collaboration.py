@@ -1,4 +1,5 @@
 import os
+os.environ["TOTAL_BUDGET"] = "75.00"
 import shutil
 import unittest
 

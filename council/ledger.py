@@ -73,6 +73,7 @@ class Ledger:
         self.pricing_config = pricing_config
         self.pricing, self.tier_models, self.tier_thinking, self.custom_providers = self._load_pricing_config()
 
+        self.explicit_budget_passed = total_budget is not None
         if total_budget is None:
             try:
                 total_budget = float(os.environ.get("TOTAL_BUDGET", "75.00"))
@@ -124,12 +125,13 @@ class Ledger:
 
     def _load_ledger(self) -> Dict[str, Any]:
         env_budget = None
-        try:
-            env_val = os.environ.get("TOTAL_BUDGET")
-            if env_val is not None:
-                env_budget = float(env_val)
-        except (ValueError, TypeError):
-            pass
+        if not self.explicit_budget_passed:
+            try:
+                env_val = os.environ.get("TOTAL_BUDGET")
+                if env_val is not None:
+                    env_budget = float(env_val)
+            except (ValueError, TypeError):
+                pass
 
         if os.path.exists(self.filepath):
             try:
