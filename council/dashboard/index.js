@@ -813,6 +813,41 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function appendMessage(role, content, cost = null, model = null, tier = null) {
+        if (role === "tool") {
+            let toolName = "Unknown Tool";
+            let toolArgs = {};
+            let toolResult = "";
+            try {
+                const parsed = JSON.parse(content);
+                toolName = parsed.name || toolName;
+                toolArgs = parsed.args || toolArgs;
+                toolResult = parsed.result || toolResult;
+            } catch (e) {
+                toolResult = content;
+            }
+            
+            const turnDiv = document.createElement("div");
+            turnDiv.className = "message-turn tool-call-msg";
+            turnDiv.style.width = "100%";
+            turnDiv.innerHTML = `
+                <details class="tool-call-details" style="margin: 0.5rem 0; padding: 0.5rem; background: rgba(255,255,255,0.03); border-radius: 4px; border: 1px solid rgba(255,255,255,0.08);">
+                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--accent-blue);">
+                        <i data-lucide="wrench" style="display:inline-block; width:12px; height:12px; margin-right:4px; vertical-align:middle;"></i>
+                        Tool Call: ${toolName} <span style="font-weight: normal; color: var(--text-dim); margin-left: 8px;">(Cost: $0.00000)</span>
+                    </summary>
+                    <div style="margin-top: 0.5rem; font-size: 10px; font-family: monospace; white-space: pre-wrap; background: rgba(0,0,0,0.2); padding: 0.5rem; border-radius: 3px; color: var(--text-dim);">
+                        <strong>Arguments:</strong> ${escapeHtml(JSON.stringify(toolArgs, null, 2))}
+                        <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 0.5rem 0;" />
+                        <strong>Result:</strong> ${escapeHtml(toolResult)}
+                    </div>
+                </details>
+            `;
+            playgroundChatHistory.appendChild(turnDiv);
+            lucide.createIcons();
+            playgroundChatHistory.scrollTop = playgroundChatHistory.scrollHeight;
+            return;
+        }
+
         const turnDiv = document.createElement("div");
         turnDiv.className = `message-turn ${role}`;
 
@@ -1343,6 +1378,40 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function chamberAppend(turn) {
         const div = document.createElement("div");
+        if (turn.role === "tool") {
+            let toolName = "Unknown Tool";
+            let toolArgs = {};
+            let toolResult = "";
+            try {
+                const parsed = JSON.parse(turn.content);
+                toolName = parsed.name || toolName;
+                toolArgs = parsed.args || toolArgs;
+                toolResult = parsed.result || toolResult;
+            } catch (e) {
+                toolResult = turn.content;
+            }
+            
+            div.className = "chamber-msg tool-call-msg";
+            div.style.width = "100%";
+            div.innerHTML = `
+                <details class="tool-call-details" style="margin: 0.5rem 0; padding: 0.5rem; background: rgba(255,255,255,0.03); border-radius: 4px; border: 1px solid rgba(255,255,255,0.08);">
+                    <summary style="cursor: pointer; font-size: 11px; font-weight: bold; color: var(--accent-blue);">
+                        <i data-lucide="wrench" style="display:inline-block; width:12px; height:12px; margin-right:4px; vertical-align:middle;"></i>
+                        Tool Call: ${toolName} <span style="font-weight: normal; color: var(--text-dim); margin-left: 8px;">(Cost: $0.00000)</span>
+                    </summary>
+                    <div style="margin-top: 0.5rem; font-size: 10px; font-family: monospace; white-space: pre-wrap; background: rgba(0,0,0,0.2); padding: 0.5rem; border-radius: 3px; color: var(--text-dim);">
+                        <strong>Arguments:</strong> ${escapeHtml(JSON.stringify(toolArgs, null, 2))}
+                        <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.08); margin: 0.5rem 0;" />
+                        <strong>Result:</strong> ${escapeHtml(toolResult)}
+                    </div>
+                </details>
+            `;
+            chamberFeed.appendChild(div);
+            lucide.createIcons();
+            chamberFeed.scrollTop = chamberFeed.scrollHeight;
+            return;
+        }
+
         const tierClass = turn.tier ? `tier-${turn.tier}` : (turn.role === "system" ? "tier-system" : "tier-unknown");
         div.className = `chamber-msg ${tierClass}`;
         let meta = "";
