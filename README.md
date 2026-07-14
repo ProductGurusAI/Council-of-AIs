@@ -88,23 +88,23 @@ Docker is optional. If running, the engine automatically uses Docker container i
 
 ```mermaid
 graph TD
-    User([User Task Input]) --> Bypass{Bypass Gate}
-    Bypass -- Trivial Matching --> Cheap[Local Subprocess / Cheap Model]
-    Bypass -- Non-Trivial --> Leader[Leader: Gate Cascade]
+    User(["User Task Input"]) --> Bypass{"Bypass Gate"}
+    Bypass -- "Trivial Matching" --> Cheap["Local Subprocess / Cheap Model"]
+    Bypass -- "Non-Trivial" --> Leader["Leader: Gate Cascade"]
     
-    Leader -->|Gate 1 & 2: Stakes / Graph Touch| Thinker[Thinker: Premium Model]
-    Leader -->|Gate 3: Token Volume Cap| Explorer[Explorer: Mid-Tier Builder]
+    Leader -->|Gate 1 & 2: Stakes / Graph Touch| Thinker["Thinker: Premium Model"]
+    Leader -->|Gate 3: Token Volume Cap| Explorer["Explorer: Mid-Tier Builder"]
     Leader -->|Gate 4: Ambiguity Threshold| Explorer
     
-    Explorer -->|Defect / Failure| Escalation[Clean-Room Escalation] --> Thinker
+    Explorer -->|Defect / Failure| Escalation["Clean-Room Escalation"] --> Thinker
     
-    Thinker -->|Consolidated Output| Graphify[Graphify: Memory Compression]
+    Thinker -->|Consolidated Output| Graphify["Graphify: Memory Compression"]
     Explorer -->|Handoff Note| Graphify
     
-    Graphify -->|Write Commit| Memory[(SQLite Transcripts / Markdown)]
+    Graphify -->|Write Commit| Memory[("SQLite Transcripts / Markdown")]
     
     subgraph Controls
-        Ledger[(SQLite Atomic Reservations)]
+        Ledger[("SQLite Atomic Reservations")]
     end
     
     Thinker -.->|Reserve & Commit| Ledger
