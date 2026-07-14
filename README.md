@@ -3,7 +3,7 @@
 > **Stop paying seat subscriptions and hitting message caps.**  
 > Council of AIs is a task-oriented multi-model orchestration and budget-control engine. It routes tasks to the most cost-effective model tier, manages a persistent compressed memory across sessions, and protects your prepaid budget.
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python Version](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
 [![Unit Tests](https://img.shields.io/badge/tests-33%20passed-green)](#verification-results)
 
@@ -117,4 +117,4 @@ Memories are maintained on a semantic pyramid utilizing **TencentDB Agent Memory
 
 ## 📄 License
 
-This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
