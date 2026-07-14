@@ -4,6 +4,9 @@
 
 # Runtime state (not part of the audit trail)
 ledger_store.json
+ledger_store.db
+*.db
+*.migrated
 models.json
 tasks_store/
 .council/graph.db

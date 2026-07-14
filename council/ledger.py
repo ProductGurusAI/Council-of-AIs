@@ -81,11 +81,223 @@ class Ledger:
                 total_budget = 75.00
         self.total_budget = total_budget
 
-        # Load or initialize the ledger data
-        self.data = self._load_ledger()
+        # Resolve DB path
+        if self.filepath.endswith(".json"):
+            self.db_path = self.filepath[:-5] + ".db"
+        else:
+            self.db_path = self.filepath
+
+        self._init_db()
+        self._migrate_json()
+        self._sync_env_budget()
+
+    @property
+    def data(self) -> Dict[str, Any]:
+        """
+        Dynamically construct a compatible dictionary representation of the ledger data from SQLite,
+        supporting reads and writes transparently for backward compatibility.
+        """
+        class LedgerDataProxy(dict):
+            def __init__(self, ledger):
+                self.ledger = ledger
+                super().__init__()
+            
+            def __getitem__(self, key):
+                return self.ledger._get_data_value(key)
+                
+            def __setitem__(self, key, value):
+                self.ledger._set_data_value(key, value)
+                
+            def get(self, key, default=None):
+                try:
+                    return self[key]
+                except KeyError:
+                    return default
+                    
+            def __contains__(self, key):
+                return key in ("total_budget", "reserve_floor", "per_task_cap", "total_spent", "tasks")
+        
+        return LedgerDataProxy(self)
+
+    def _get_data_value(self, key: str) -> Any:
+        import sqlite3
+        if key in ("total_budget", "reserve_floor", "per_task_cap", "total_spent"):
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT {key} FROM ledger_metadata WHERE id = 1")
+            row = cursor.fetchone()
+            conn.close()
+            return row[0] if row else 0.0
+            
+        elif key == "tasks":
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT task_id FROM transactions UNION SELECT DISTINCT task_id FROM loop_history")
+            task_ids = [r[0] for r in cursor.fetchall()]
+            
+            tasks = {}
+            for t_id in task_ids:
+                cursor.execute("SELECT SUM(cost) FROM transactions WHERE task_id = ?", (t_id,))
+                task_spent = cursor.fetchone()[0] or 0.0
+                
+                cursor.execute("SELECT provider, model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, cost FROM transactions WHERE task_id = ?", (t_id,))
+                tx_rows = cursor.fetchall()
+                tx_list = []
+                for tx in tx_rows:
+                    tx_list.append({
+                        "provider": tx[0],
+                        "model": tx[1],
+                        "input_tokens": tx[2],
+                        "output_tokens": tx[3],
+                        "cache_write_tokens": tx[4],
+                        "cache_read_tokens": tx[5],
+                        "cost": tx[6]
+                    })
+                    
+                cursor.execute("SELECT state_name FROM loop_history WHERE task_id = ? ORDER BY id ASC", (t_id,))
+                lh_rows = [r[0] for r in cursor.fetchall()]
+                
+                tasks[t_id] = {
+                    "total_spent": task_spent,
+                    "transactions": tx_list,
+                    "loop_history": lh_rows
+                }
+            conn.close()
+            return tasks
+            
+        raise KeyError(key)
+
+    def _set_data_value(self, key: str, value: Any):
+        import sqlite3
+        if key in ("total_budget", "reserve_floor", "per_task_cap", "total_spent"):
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                cursor = conn.cursor()
+                cursor.execute(f"UPDATE ledger_metadata SET {key} = ? WHERE id = 1", (value,))
+                conn.commit()
+
+    def _init_db(self):
+        import sqlite3
+        os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ledger_metadata (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                total_budget REAL,
+                reserve_floor REAL,
+                per_task_cap REAL,
+                total_spent REAL
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reservations (
+                id TEXT PRIMARY KEY,
+                task_id TEXT,
+                est_cost REAL,
+                created_at REAL,
+                status TEXT
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT,
+                provider TEXT,
+                model TEXT,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                cache_write_tokens INTEGER,
+                cache_read_tokens INTEGER,
+                cost REAL
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS loop_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT,
+                state_name TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+    def _migrate_json(self):
+        if not os.path.exists(self.filepath) or not self.filepath.endswith(".json"):
+            return
+            
+        import sqlite3
+        try:
+            with open(self.filepath, "r") as f:
+                data = json.load(f)
+        except Exception:
+            return
+            
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(*) FROM ledger_metadata")
+        if cursor.fetchone()[0] > 0:
+            conn.close()
+            return
+            
+        cursor.execute(
+            "INSERT INTO ledger_metadata (id, total_budget, reserve_floor, per_task_cap, total_spent) VALUES (1, ?, ?, ?, ?)",
+            (data.get("total_budget", self.total_budget), data.get("reserve_floor", self.reserve_floor), data.get("per_task_cap", self.per_task_cap), data.get("total_spent", 0.0))
+        )
+        
+        tasks = data.get("tasks", {})
+        for task_id, task_val in tasks.items():
+            for tx in task_val.get("transactions", []):
+                cursor.execute(
+                    "INSERT INTO transactions (task_id, provider, model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (task_id, tx.get("provider"), tx.get("model"), tx.get("input_tokens", 0), tx.get("output_tokens", 0), tx.get("cache_write_tokens", 0), tx.get("cache_read_tokens", 0), tx.get("cost", 0.0))
+                )
+            for lh in task_val.get("loop_history", []):
+                cursor.execute(
+                    "INSERT INTO loop_history (task_id, state_name) VALUES (?, ?)",
+                    (task_id, lh)
+                )
+        conn.commit()
+        conn.close()
+        
+        try:
+            os.rename(self.filepath, self.filepath + ".migrated")
+        except Exception:
+            pass
+
+    def _sync_env_budget(self):
+        env_budget = None
+        if not self.explicit_budget_passed:
+            try:
+                env_val = os.environ.get("TOTAL_BUDGET")
+                if env_val is not None:
+                    env_budget = float(env_val)
+            except (ValueError, TypeError):
+                pass
+                
+        import sqlite3
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.cursor()
+            cursor.execute("SELECT total_budget FROM ledger_metadata WHERE id = 1")
+            row = cursor.fetchone()
+            if row:
+                if env_budget is not None and row[0] != env_budget:
+                    cursor.execute("UPDATE ledger_metadata SET total_budget = ? WHERE id = 1", (env_budget,))
+            else:
+                initial_budget = env_budget if env_budget is not None else self.total_budget
+                cursor.execute(
+                    "INSERT INTO ledger_metadata (id, total_budget, reserve_floor, per_task_cap, total_spent) VALUES (1, ?, ?, ?, 0.0)",
+                    (initial_budget, self.reserve_floor, self.per_task_cap)
+                )
+            conn.commit()
 
     def _load_pricing_config(self) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
-        """Loads models.json if present; otherwise writes defaults for the user to edit."""
         pricing = json.loads(json.dumps(DEFAULT_MODEL_PRICING))
         tier_models = json.loads(json.dumps(DEFAULT_TIER_MODELS))
         tier_thinking = {
@@ -110,7 +322,7 @@ class Ledger:
                 if "custom_providers" in cfg:
                     custom_providers.update(cfg["custom_providers"])
             except (json.JSONDecodeError, OSError):
-                pass  # fall back to defaults; never brick the ledger on bad config
+                pass
         elif self.pricing_config:
             try:
                 with open(self.pricing_config, "w") as f:
@@ -120,65 +332,35 @@ class Ledger:
         return _derive_cache_prices(pricing), tier_models, tier_thinking, custom_providers
 
     def get_unverified_models(self) -> List[str]:
-        """Models whose prices haven't been human-verified — surface on the dashboard."""
         return [m for m, r in self.pricing.items() if not r.get("verified", False)]
 
-    def _load_ledger(self) -> Dict[str, Any]:
-        env_budget = None
-        if not self.explicit_budget_passed:
-            try:
-                env_val = os.environ.get("TOTAL_BUDGET")
-                if env_val is not None:
-                    env_budget = float(env_val)
-            except (ValueError, TypeError):
-                pass
-
-        if os.path.exists(self.filepath):
-            try:
-                with open(self.filepath, "r") as f:
-                    data = json.load(f)
-                # If env_budget is set and is different, automatically update the ledger configuration
-                if env_budget is not None and data.get("total_budget") != env_budget:
-                    data["total_budget"] = env_budget
-                    self._save_ledger(data)
-                return data
-            except json.JSONDecodeError:
-                pass
-        
-        # Default initialization structure
-        initial_budget = env_budget if env_budget is not None else self.total_budget
-        initial_structure = {
-            "total_budget": initial_budget,
-            "reserve_floor": self.reserve_floor,
-            "per_task_cap": self.per_task_cap,
-            "total_spent": 0.0,
-            "tasks": {}
-        }
-        self._save_ledger(initial_structure)
-        return initial_structure
-
     def _save_ledger(self, data: Dict[str, Any] = None):
-        if data is None:
-            data = self.data
-        with open(self.filepath, "w") as f:
-            json.dump(data, f, indent=4)
+        pass
 
     def get_remaining_budget(self) -> float:
-        return max(0.0, self.data["total_budget"] - self.data["total_spent"])
+        import sqlite3
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT total_budget, total_spent FROM ledger_metadata WHERE id = 1")
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            return max(0.0, row[0] - row[1])
+        return 0.0
 
     def get_task_spend(self, task_id: str) -> float:
-        task = self.data["tasks"].get(task_id, {})
-        return task.get("total_spent", 0.0)
+        import sqlite3
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT SUM(cost) FROM transactions WHERE task_id = ?", (task_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row[0] is not None else 0.0
 
     def calculate_cost(self, model: str, input_tokens: int, output_tokens: int, cache_write_tokens: int = 0, cache_read_tokens: int = 0) -> float:
         rates = self.pricing.get(model)
         if not rates:
-            # Unknown model: fail-expensive. Bill at the priciest known rates so an
-            # unrecognized model can never silently under-meter the budget.
             rates = max(self.pricing.values(), key=lambda r: r["input"])
-        
-        # Standard input/output tokens cost
-        # Since rates are per 1M tokens, divide tokens by 1,000,000
         cost = (
             (input_tokens * rates["input"]) +
             (output_tokens * rates["output"]) +
@@ -189,87 +371,165 @@ class Ledger:
 
     def record_spend(self, task_id: str, provider: str, model: str, input_tokens: int, output_tokens: int, cache_write_tokens: int = 0, cache_read_tokens: int = 0) -> float:
         cost = self.calculate_cost(model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens)
-        
-        # Update total spend
-        self.data["total_spent"] += cost
-        
-        # Update task spend
-        if task_id not in self.data["tasks"]:
-            self.data["tasks"][task_id] = {
-                "total_spent": 0.0,
-                "transactions": [],
-                "loop_history": []
-            }
-        
-        task_data = self.data["tasks"][task_id]
-        task_data["total_spent"] += cost
-        task_data["transactions"].append({
-            "provider": provider,
-            "model": model,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "cache_write_tokens": cache_write_tokens,
-            "cache_read_tokens": cache_read_tokens,
-            "cost": cost
-        })
-        
-        self._save_ledger()
+        import sqlite3
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO transactions (task_id, provider, model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (task_id, provider, model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, cost)
+            )
+            cursor.execute("UPDATE ledger_metadata SET total_spent = total_spent + ? WHERE id = 1", (cost,))
+            conn.commit()
         return cost
 
     def record_state(self, task_id: str, state_name: str):
-        """Records state execution to monitor runaway loops."""
-        if task_id not in self.data["tasks"]:
-            self.data["tasks"][task_id] = {
-                "total_spent": 0.0,
-                "transactions": [],
-                "loop_history": []
-            }
-        self.data["tasks"][task_id]["loop_history"].append(state_name)
-        self._save_ledger()
+        import sqlite3
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO loop_history (task_id, state_name) VALUES (?, ?)", (task_id, state_name))
+            conn.commit()
 
     def check_runaway_loop(self, task_id: str) -> bool:
-        """Returns True if the last 3 states in the history are identical (meaning no state change progress)."""
-        task_data = self.data["tasks"].get(task_id, {})
-        history = task_data.get("loop_history", [])
+        import sqlite3
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT state_name FROM loop_history WHERE task_id = ? ORDER BY id ASC", (task_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        history = [r[0] for r in rows]
         if len(history) >= 4:
-            # Check if last 4 elements are the same state (i.e. 3 transitions back to same state)
             last_four = history[-4:]
             if len(set(last_four)) == 1:
                 return True
         return False
 
     def check_constraints(self, task_id: str, next_step_est_cost: float, is_thinker_escalation: bool, user_confirmed: bool = False) -> Tuple[bool, str]:
-        """
-        Validates whether execution is allowed under current budget constraints.
-        Returns: (is_allowed, reason)
-        """
-        remaining_budget = self.get_remaining_budget()
-        task_spent = self.get_task_spend(task_id)
-
-        # FR-8: Endgame Mode
-        # Below $15 remaining, any thinker-tier spend requires user confirmation.
+        import sqlite3
+        import time
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT total_budget, total_spent, reserve_floor, per_task_cap FROM ledger_metadata WHERE id = 1")
+        meta = cursor.fetchone()
+        
+        cutoff = time.time() - 600
+        cursor.execute("SELECT SUM(est_cost) FROM reservations WHERE status = 'active' AND created_at > ?", (cutoff,))
+        active_res = cursor.fetchone()[0] or 0.0
+        
+        cursor.execute("SELECT SUM(cost) FROM transactions WHERE task_id = ?", (task_id,))
+        task_spent = cursor.fetchone()[0] or 0.0
+        
+        cursor.execute("SELECT SUM(est_cost) FROM reservations WHERE task_id = ? AND status = 'active' AND created_at > ?", (task_id, cutoff))
+        task_active_res = cursor.fetchone()[0] or 0.0
+        conn.close()
+        
+        if not meta:
+            return False, "Ledger metadata missing"
+        total_budget, total_spent, reserve_floor, per_task_cap = meta
+        remaining_budget = max(0.0, total_budget - total_spent)
+        available_budget = max(0.0, total_budget - (total_spent + active_res))
+        
         if remaining_budget < 15.00 and is_thinker_escalation:
             if not user_confirmed:
                 return False, f"ENDGAME: confirm required — est ${next_step_est_cost:.4f}, ${remaining_budget:.4f} left"
-
-        # 1. Total budget exhaustion
-        if remaining_budget < next_step_est_cost:
-            return False, f"Total budget exhausted. Required: ${next_step_est_cost:.4f}, Available: ${remaining_budget:.4f}."
-
-        # 2. Reserve Floor Check
-        # If spending next_step_est_cost takes remaining budget below reserve floor
-        # and this is NOT a Thinker escalation, reject it.
-        post_spend_budget = remaining_budget - next_step_est_cost
-        if post_spend_budget < self.reserve_floor and not is_thinker_escalation:
-            return False, f"Reserve floor threshold hit. Budget remaining: ${remaining_budget:.4f}. Only Thinker escalations allowed below ${self.reserve_floor:.2f}."
-
-        # 3. Per-task Cap Check
-        if task_spent + next_step_est_cost > self.per_task_cap:
-            return False, f"Per-task budget cap reached. Spent so far: ${task_spent:.4f}. Estimated next step: ${next_step_est_cost:.4f}. Task cap is ${self.per_task_cap:.2f}."
-
+                
+        if available_budget < next_step_est_cost:
+            return False, f"Total budget exhausted. Required: ${next_step_est_cost:.4f}, Available: ${available_budget:.4f}."
+            
+        post_spend_budget = available_budget - next_step_est_cost
+        if post_spend_budget < reserve_floor and not is_thinker_escalation:
+            return False, f"Reserve floor threshold hit. Budget remaining: ${available_budget:.4f}. Only Thinker escalations allowed below ${reserve_floor:.2f}."
+            
+        if task_spent + task_active_res + next_step_est_cost > per_task_cap:
+            return False, f"Per-task budget cap reached. Spent so far: ${task_spent:.4f}. Estimated next step: ${next_step_est_cost:.4f}. Task cap is ${per_task_cap:.2f}."
+            
         return True, "Constraints satisfied"
 
     def reset_task_history(self, task_id: str):
-        if task_id in self.data["tasks"]:
-            self.data["tasks"][task_id]["loop_history"] = []
-            self._save_ledger()
+        import sqlite3
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM loop_history WHERE task_id = ?", (task_id,))
+            conn.commit()
+
+    def reserve(self, task_id: str, est_cost: float, is_thinker: bool = False, user_confirmed: bool = False) -> str:
+        import sqlite3
+        import time
+        import uuid
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT total_budget, total_spent, reserve_floor, per_task_cap FROM ledger_metadata WHERE id = 1")
+            meta = cursor.fetchone()
+            if not meta:
+                raise PermissionError("Ledger metadata missing")
+            total_budget, total_spent, reserve_floor, per_task_cap = meta
+            
+            cutoff = time.time() - 600
+            cursor.execute("SELECT SUM(est_cost) FROM reservations WHERE status = 'active' AND created_at > ?", (cutoff,))
+            active_res = cursor.fetchone()[0] or 0.0
+            
+            cursor.execute("SELECT SUM(cost) FROM transactions WHERE task_id = ?", (task_id,))
+            task_spent = cursor.fetchone()[0] or 0.0
+            
+            cursor.execute("SELECT SUM(est_cost) FROM reservations WHERE task_id = ? AND status = 'active' AND created_at > ?", (task_id, cutoff))
+            task_active_res = cursor.fetchone()[0] or 0.0
+            
+            remaining_budget = max(0.0, total_budget - total_spent)
+            available_budget = max(0.0, total_budget - (total_spent + active_res))
+            
+            if remaining_budget < 15.00 and is_thinker:
+                if not user_confirmed:
+                    raise PermissionError(f"ENDGAME: confirm required — est ${est_cost:.4f}, ${remaining_budget:.4f} left")
+                    
+            if available_budget < est_cost:
+                raise PermissionError(f"Total budget exhausted. Required: ${est_cost:.4f}, Available: ${available_budget:.4f}.")
+                
+            post_spend_budget = available_budget - est_cost
+            if post_spend_budget < reserve_floor and not is_thinker:
+                raise PermissionError(f"Reserve floor threshold hit. Budget remaining: ${available_budget:.4f}. Only Thinker escalations allowed below ${reserve_floor:.2f}.")
+                
+            if task_spent + task_active_res + est_cost > per_task_cap:
+                raise PermissionError(f"Per-task budget cap reached. Spent so far: ${task_spent:.4f}. Estimated next step: ${est_cost:.4f}. Task cap is ${per_task_cap:.2f}.")
+                
+            res_id = f"res-{uuid.uuid4().hex[:12]}"
+            cursor.execute(
+                "INSERT INTO reservations (id, task_id, est_cost, created_at, status) VALUES (?, ?, ?, ?, 'active')",
+                (res_id, task_id, est_cost, time.time())
+            )
+            conn.commit()
+            return res_id
+
+    def commit(self, reservation_id: str, actual_cost: float, provider: str = None, model: str = None, input_tokens: int = 0, output_tokens: int = 0, cache_write_tokens: int = 0, cache_read_tokens: int = 0):
+        import sqlite3
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT task_id, status FROM reservations WHERE id = ?", (reservation_id,))
+            row = cursor.fetchone()
+            if not row:
+                raise ValueError(f"Reservation not found: {reservation_id}")
+            task_id, status = row
+            
+            if status != "active":
+                raise ValueError(f"Reservation is not active: {reservation_id} (status: {status})")
+                
+            cursor.execute("UPDATE reservations SET status = 'committed' WHERE id = ?", (reservation_id,))
+            cursor.execute(
+                "INSERT INTO transactions (task_id, provider, model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (task_id, provider, model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, actual_cost)
+            )
+            cursor.execute("UPDATE ledger_metadata SET total_spent = total_spent + ? WHERE id = 1", (actual_cost,))
+            conn.commit()
+
+    def release(self, reservation_id: str):
+        import sqlite3
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.cursor()
+            cursor.execute("UPDATE reservations SET status = 'released' WHERE id = ?", (reservation_id,))
+            conn.commit()

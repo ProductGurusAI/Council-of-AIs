@@ -149,54 +149,65 @@ class UnifiedClient:
 
         est_cost = self.ledger.calculate_cost(model, input_tokens, est_output_tokens, cache_write_tokens, cache_read_tokens)
 
-        # Verify ledger constraints (pre-flight check uses the estimate; the
-        # recorded spend below uses ACTUAL usage returned by the provider — FR-5)
+        # Verify ledger constraints by reserving budget
         is_thinker = (tier == "thinker")
-        allowed, reason = self.ledger.check_constraints(task_id, est_cost, is_thinker, user_confirmed=user_confirmed)
-        if not allowed:
-            raise PermissionError(f"Ledger block: {reason}")
+        res_id = self.ledger.reserve(task_id, est_cost, is_thinker, user_confirmed=user_confirmed)
 
         # 2. Run API invocation (Real or Simulated)
         response_text = ""
         usage = None  # actual provider-reported usage dict
 
-        if self.is_simulated:
-            time.sleep(0.5) # simulate latency
-            response_text = self._generate_simulated_response(tier, user_prompt)
-            # Simulation: estimates are the only numbers we have
-            usage = {
-                "input_tokens": input_tokens,
-                "output_tokens": len(response_text) // 4,
-                "cache_write_tokens": cache_write_tokens,
-                "cache_read_tokens": cache_read_tokens,
-            }
-        else:
-            try:
-                response_text, usage = self._call_real_api(
-                    provider, model, tier, cache_envelope, user_prompt, prefix_tokens
-                )
-            except Exception as e:
-                # API failure: return a clearly-labeled simulated response and
-                # record ZERO spend — a failed call must never bill the budget.
-                response_text = (
-                    f"[SIMULATED FALLBACK — API ERROR, NO SPEND RECORDED: {str(e)}]\n"
-                    + self._generate_simulated_response(tier, user_prompt)
-                )
-                usage = None
+        try:
+            if self.is_simulated:
+                time.sleep(0.5) # simulate latency
+                response_text = self._generate_simulated_response(tier, user_prompt)
+                # Simulation: estimates are the only numbers we have
+                usage = {
+                    "input_tokens": input_tokens,
+                    "output_tokens": len(response_text) // 4,
+                    "cache_write_tokens": cache_write_tokens,
+                    "cache_read_tokens": cache_read_tokens,
+                }
+            else:
+                try:
+                    response_text, usage = self._call_real_api(
+                        provider, model, tier, cache_envelope, user_prompt, prefix_tokens
+                    )
+                except Exception as e:
+                    # API failure: return a clearly-labeled simulated response and
+                    # record ZERO spend — a failed call must never bill the budget.
+                    response_text = (
+                        f"[SIMULATED FALLBACK — API ERROR, NO SPEND RECORDED: {str(e)}]\n"
+                        + self._generate_simulated_response(tier, user_prompt)
+                    )
+                    usage = None
 
-        # 3. Record spend from actual usage (or estimates in simulation).
-        if usage is not None:
-            cost = self.ledger.record_spend(
-                task_id=task_id,
-                provider=provider,
-                model=model,
-                input_tokens=usage.get("input_tokens", 0),
-                output_tokens=usage.get("output_tokens", 0),
-                cache_write_tokens=usage.get("cache_write_tokens", 0),
-                cache_read_tokens=usage.get("cache_read_tokens", 0)
-            )
-        else:
-            cost = 0.0
+            # 3. Record spend from actual usage (or estimates in simulation).
+            if usage is not None:
+                actual_cost = self.ledger.calculate_cost(
+                    model,
+                    usage.get("input_tokens", 0),
+                    usage.get("output_tokens", 0),
+                    usage.get("cache_write_tokens", 0),
+                    usage.get("cache_read_tokens", 0)
+                )
+                self.ledger.commit(
+                    reservation_id=res_id,
+                    actual_cost=actual_cost,
+                    provider=provider,
+                    model=model,
+                    input_tokens=usage.get("input_tokens", 0),
+                    output_tokens=usage.get("output_tokens", 0),
+                    cache_write_tokens=usage.get("cache_write_tokens", 0),
+                    cache_read_tokens=usage.get("cache_read_tokens", 0)
+                )
+                cost = actual_cost
+            else:
+                self.ledger.release(res_id)
+                cost = 0.0
+        except Exception:
+            self.ledger.release(res_id)
+            raise
 
         # Add to volatile turns
         cache_envelope.add_turn("user", user_prompt)
