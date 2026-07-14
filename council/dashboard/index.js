@@ -908,6 +908,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const keyAnthropic = document.getElementById("key-anthropic");
     const keyGemini = document.getElementById("key-gemini");
     const keyOpenai = document.getElementById("key-openai");
+    const inputWalletBudget = document.getElementById("input-wallet-budget");
     const btnSaveKeys = document.getElementById("btn-save-keys");
     const keysStatusMsg = document.getElementById("keys-status-msg");
     const customKeysList = document.getElementById("custom-keys-list");
@@ -958,6 +959,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 } else {
                     keyOpenai.placeholder = "sk-proj-...";
                 }
+                
+                // Populate Wallet Budget input field
+                if (inputWalletBudget) {
+                    inputWalletBudget.value = data.total_budget || 75.00;
+                }
+
                 // Reset inputs
                 keyAnthropic.value = "";
                 keyGemini.value = "";
@@ -990,7 +997,8 @@ document.addEventListener("DOMContentLoaded", () => {
             anthropic_key: keyAnthropic.value.trim(),
             gemini_key: keyGemini.value.trim(),
             openai_key: keyOpenai.value.trim(),
-            custom_keys: customKeys
+            custom_keys: customKeys,
+            total_budget: inputWalletBudget ? parseFloat(inputWalletBudget.value) : null
         };
 
         btnSaveKeys.disabled = true;
@@ -1009,9 +1017,10 @@ document.addEventListener("DOMContentLoaded", () => {
             lucide.createIcons();
 
             if (data.status === "success") {
-                keysStatusMsg.innerText = "Keys saved and loaded successfully!";
+                keysStatusMsg.innerText = "Keys and wallet budget saved successfully!";
                 keysStatusMsg.style.color = "var(--accent-green)";
                 fetchKeys();
+                fetchStats(); // Immediately update the overview metrics cards and headers
                 setTimeout(() => {
                     keysStatusMsg.innerText = "";
                 }, 3000);

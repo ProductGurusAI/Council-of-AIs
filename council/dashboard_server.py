@@ -623,6 +623,10 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
             gemini = os.environ.get("GEMINI_API_KEY", "")
             openai = os.environ.get("OPENAI_API_KEY", "")
             
+            from council.ledger import Ledger
+            ledger = Ledger(filepath=os.path.join(WORKSPACE_DIR, "ledger_store.json"), pricing_config=os.path.join(WORKSPACE_DIR, "models.json"))
+            total_budget = ledger.total_budget
+
             core_keys = {"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY"}
             custom_list = []
             
@@ -665,7 +669,8 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
                 "anthropic_masked": "••••••••••••" + anthropic[-4:] if anthropic else "",
                 "gemini_masked": "••••••••••••" + gemini[-4:] if gemini else "",
                 "openai_masked": "••••••••••••" + openai[-4:] if openai else "",
-                "custom_keys": custom_list
+                "custom_keys": custom_list,
+                "total_budget": total_budget
             }
             self._set_headers()
             self.wfile.write(json.dumps(response).encode())
@@ -678,6 +683,7 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
         gemini = (body.get("gemini_key") or "").strip()
         openai = (body.get("openai_key") or "").strip()
         custom_keys = body.get("custom_keys") or {}
+        total_budget = body.get("total_budget")
 
         try:
             # Update current process variables
@@ -687,6 +693,12 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
                 os.environ["GEMINI_API_KEY"] = gemini
             if openai:
                 os.environ["OPENAI_API_KEY"] = openai
+            if total_budget is not None:
+                try:
+                    float_val = float(total_budget)
+                    os.environ["TOTAL_BUDGET"] = f"{float_val:.2f}"
+                except (ValueError, TypeError):
+                    pass
 
             # Read existing .env
             env_path = os.path.join(WORKSPACE_DIR, ".env")
@@ -709,6 +721,12 @@ class DashboardHTTPHandler(BaseHTTPRequestHandler):
                 existing["GEMINI_API_KEY"] = gemini
             if openai:
                 existing["OPENAI_API_KEY"] = openai
+            if total_budget is not None:
+                try:
+                    float_val = float(total_budget)
+                    existing["TOTAL_BUDGET"] = f"{float_val:.2f}"
+                except (ValueError, TypeError):
+                    pass
 
             core_keys = {"ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY"}
             posted_env_keys = {}
