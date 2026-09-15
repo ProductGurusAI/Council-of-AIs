@@ -198,4 +198,16 @@ As requested, the actual unit test count cited in the badges and documentation (
 Ran 47 tests in 8.971s
 OK (skipped=2)
 ```
-### Built by Productgurus.ai
+---
+
+## 🧭 About
+
+Council of AIs was built by [ProductGurus](https://productgurus.ai), a product
+research and build studio in Vancouver, BC. It is one of seven products taken
+from first interview to release.
+
+**Case study:** [How Council of AIs was built](https://productgurus.ai/projects/council-of-ais).
+The routing decisions, the 35× cost gap between model tiers that motivated the
+budget engine, and the parts that are still unresolved.
+
+**Other work:** [productgurus.ai/work](https://productgurus.ai/work)
